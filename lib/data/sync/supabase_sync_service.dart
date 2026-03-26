@@ -1,0 +1,3 @@
+class SupabaseSyncService {
+  const SupabaseSyncService();
+}
