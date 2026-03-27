@@ -1,4 +1,4 @@
-enum UserRole { admin, staff }
+enum UserRole { admin, cashier }
 
 class User {
   const User({

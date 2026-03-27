@@ -131,8 +131,9 @@ class UserRepository {
     switch (role) {
       case 'admin':
         return UserRole.admin;
+      case 'cashier':
       case 'staff':
-        return UserRole.staff;
+        return UserRole.cashier;
       default:
         throw DatabaseException('Unknown user role: $role');
     }
@@ -142,8 +143,8 @@ class UserRepository {
     switch (role) {
       case UserRole.admin:
         return 'admin';
-      case UserRole.staff:
-        return 'staff';
+      case UserRole.cashier:
+        return 'cashier';
     }
   }
 }

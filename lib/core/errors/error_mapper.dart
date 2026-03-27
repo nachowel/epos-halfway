@@ -5,7 +5,19 @@ class ErrorMapper {
 
   static String toUserMessage(Object error) {
     if (error is ShiftNotActiveException) {
-      return "Aktif shift yok. Admin'e başvurun.";
+      return 'Aktif shift yok. İlk giriş yapan kullanıcı yeni shift başlatır.';
+    }
+    if (error is ShiftClosedException) {
+      return 'Shift zaten kapatılmış.';
+    }
+    if (error is ShiftMismatchException) {
+      return 'Sipariş aktif shift\'e ait değil. Ödeme alınamaz.';
+    }
+    if (error is CashierPreviewLockedException) {
+      return 'Cashier gün sonu raporu alınmış. Yeni sipariş ve ödeme tüm cashier\'lar için kapalı. Admin final kapanış yapmalı.';
+    }
+    if (error is CashierShiftClosedException) {
+      return 'Cashier tarafı kapanmış durumda. Final kapanış admin tarafından yapılmalı.';
     }
     if (error is ShiftAlreadyOpenException) {
       return 'Zaten açık bir shift var.';

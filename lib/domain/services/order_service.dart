@@ -1,42 +1,41 @@
 import 'package:uuid/uuid.dart';
 
 import '../../core/errors/exceptions.dart';
-import '../../data/repositories/shift_repository.dart';
 import '../../data/repositories/transaction_repository.dart';
+import '../models/open_order_summary.dart';
 import '../models/order_modifier.dart';
 import '../models/transaction.dart';
 import '../models/transaction_line.dart';
 import '../models/user.dart';
+import 'shift_session_service.dart';
 
 class OrderService {
   OrderService({
-    required ShiftRepository shiftRepository,
+    required ShiftSessionService shiftSessionService,
     required TransactionRepository transactionRepository,
     Uuid? uuidGenerator,
-  }) : _shiftRepository = shiftRepository,
+  }) : _shiftSessionService = shiftSessionService,
        _transactionRepository = transactionRepository,
        _uuidGenerator = uuidGenerator ?? const Uuid();
 
-  final ShiftRepository _shiftRepository;
+  final ShiftSessionService _shiftSessionService;
   final TransactionRepository _transactionRepository;
   final Uuid _uuidGenerator;
 
   Future<Transaction> createOrder({
-    required int userId,
+    required User currentUser,
     int? tableNumber,
     String? requestIdempotencyKey,
   }) async {
-    final openShift = await _shiftRepository.getOpenShift();
-    if (openShift == null) {
-      throw ShiftNotActiveException();
-    }
+    await _shiftSessionService.ensureOrderCreationAllowed(currentUser);
+    final openShift = await _shiftSessionService.requireBackendOpenShift();
 
     final String orderUuid = _uuidGenerator.v4();
     final String idempotencyKey = requestIdempotencyKey ?? _uuidGenerator.v4();
 
     return _transactionRepository.createTransaction(
       shiftId: openShift.id,
-      userId: userId,
+      userId: currentUser.id,
       tableNumber: tableNumber,
       uuid: orderUuid,
       idempotencyKey: idempotencyKey,
@@ -83,10 +82,10 @@ class OrderService {
       );
     }
 
-    if (currentUser.role == UserRole.staff &&
+    if (currentUser.role == UserRole.cashier &&
         transaction.userId != currentUser.id) {
       throw UnauthorisedException(
-        'Staff can cancel only their own open orders.',
+        'Cashier can cancel only their own open orders.',
       );
     }
 
@@ -108,7 +107,54 @@ class OrderService {
     return _transactionRepository.getOpenOrders(shiftId: shiftId);
   }
 
+  Future<List<OpenOrderSummary>> getOpenOrderSummaries({int? shiftId}) async {
+    final List<Transaction> openOrders = await getOpenOrders(shiftId: shiftId);
+
+    return Future.wait(
+      openOrders.map((Transaction transaction) async {
+        final List<TransactionLine> lines = await getOrderLines(transaction.id);
+        return OpenOrderSummary(
+          transaction: transaction,
+          itemCount: lines.fold<int>(
+            0,
+            (int sum, TransactionLine line) => sum + line.quantity,
+          ),
+          shortContent: _buildShortContent(lines),
+        );
+      }),
+    );
+  }
+
   Future<Transaction?> getOrderById(int transactionId) {
     return _transactionRepository.getById(transactionId);
+  }
+
+  Future<void> updateTableNumber({
+    required int transactionId,
+    required int? tableNumber,
+  }) {
+    return _transactionRepository.updateTableNumber(
+      transactionId: transactionId,
+      tableNumber: tableNumber,
+    );
+  }
+
+  String _buildShortContent(List<TransactionLine> lines) {
+    if (lines.isEmpty) {
+      return 'No items';
+    }
+
+    final Map<String, int> quantityByProduct = <String, int>{};
+    for (final TransactionLine line in lines) {
+      quantityByProduct.update(
+        line.productName,
+        (int quantity) => quantity + line.quantity,
+        ifAbsent: () => line.quantity,
+      );
+    }
+
+    return quantityByProduct.entries
+        .map((MapEntry<String, int> entry) => '${entry.value} ${entry.key}')
+        .join(', ');
   }
 }

@@ -24,7 +24,7 @@ class Users extends Table {
 
   @override
   List<String> get customConstraints => <String>[
-    "CHECK (role IN ('admin','staff'))",
+    "CHECK (role IN ('admin','cashier'))",
   ];
 }
 
@@ -43,7 +43,8 @@ class Categories extends Table {
 class Products extends Table {
   IntColumn get id => integer().autoIncrement()();
 
-  IntColumn get categoryId => integer().references(Categories, #id)();
+  IntColumn get categoryId =>
+      integer().customConstraint('NOT NULL REFERENCES "categories" ("id")')();
 
   TextColumn get name => text()();
 
@@ -64,7 +65,8 @@ class Products extends Table {
 class ProductModifiers extends Table {
   IntColumn get id => integer().autoIncrement()();
 
-  IntColumn get productId => integer().references(Products, #id)();
+  IntColumn get productId =>
+      integer().customConstraint('NOT NULL REFERENCES "products" ("id")')();
 
   TextColumn get name => text()();
 
@@ -85,14 +87,22 @@ class Shifts extends Table {
   IntColumn get id => integer().autoIncrement()();
 
   @ReferenceName('openedShifts')
-  IntColumn get openedBy => integer().references(Users, #id)();
+  IntColumn get openedBy =>
+      integer().customConstraint('NOT NULL REFERENCES "users" ("id")')();
 
   DateTimeColumn get openedAt => dateTime().withDefault(currentDateAndTime)();
 
   @ReferenceName('closedShifts')
-  IntColumn get closedBy => integer().nullable().references(Users, #id)();
+  IntColumn get closedBy =>
+      integer().nullable().customConstraint('REFERENCES "users" ("id")')();
 
   DateTimeColumn get closedAt => dateTime().nullable()();
+
+  @ReferenceName('cashierPreviewedShifts')
+  IntColumn get cashierPreviewedBy =>
+      integer().nullable().customConstraint('REFERENCES "users" ("id")')();
+
+  DateTimeColumn get cashierPreviewedAt => dateTime().nullable()();
 
   TextColumn get status => text().withDefault(const Constant('open'))();
 
@@ -107,10 +117,12 @@ class Transactions extends Table {
 
   TextColumn get uuid => text().unique()();
 
-  IntColumn get shiftId => integer().references(Shifts, #id)();
+  IntColumn get shiftId =>
+      integer().customConstraint('NOT NULL REFERENCES "shifts" ("id")')();
 
   @ReferenceName('createdTransactions')
-  IntColumn get userId => integer().references(Users, #id)();
+  IntColumn get userId =>
+      integer().customConstraint('NOT NULL REFERENCES "users" ("id")')();
 
   IntColumn get tableNumber => integer().nullable()();
 
@@ -132,7 +144,8 @@ class Transactions extends Table {
   DateTimeColumn get cancelledAt => dateTime().nullable()();
 
   @ReferenceName('cancelledTransactions')
-  IntColumn get cancelledBy => integer().nullable().references(Users, #id)();
+  IntColumn get cancelledBy =>
+      integer().nullable().customConstraint('REFERENCES "users" ("id")')();
 
   TextColumn get idempotencyKey => text().unique()();
 
@@ -156,9 +169,11 @@ class TransactionLines extends Table {
 
   TextColumn get uuid => text().unique()();
 
-  IntColumn get transactionId => integer().references(Transactions, #id)();
+  IntColumn get transactionId =>
+      integer().customConstraint('NOT NULL REFERENCES "transactions" ("id")')();
 
-  IntColumn get productId => integer().references(Products, #id)();
+  IntColumn get productId =>
+      integer().customConstraint('NOT NULL REFERENCES "products" ("id")')();
 
   TextColumn get productName => text()();
 
@@ -181,8 +196,9 @@ class OrderModifiers extends Table {
 
   TextColumn get uuid => text().unique()();
 
-  IntColumn get transactionLineId =>
-      integer().references(TransactionLines, #id)();
+  IntColumn get transactionLineId => integer().customConstraint(
+    'NOT NULL REFERENCES "transaction_lines" ("id")',
+  )();
 
   TextColumn get action => text()();
 
@@ -202,8 +218,9 @@ class Payments extends Table {
 
   TextColumn get uuid => text().unique()();
 
-  IntColumn get transactionId =>
-      integer().references(Transactions, #id).unique()();
+  IntColumn get transactionId => integer().customConstraint(
+    'UNIQUE NOT NULL REFERENCES "transactions" ("id")',
+  )();
 
   TextColumn get method => text()();
 
@@ -223,7 +240,8 @@ class ReportSettings extends Table {
 
   RealColumn get visibilityRatio => real().withDefault(const Constant(1.0))();
 
-  IntColumn get updatedBy => integer().nullable().references(Users, #id)();
+  IntColumn get updatedBy =>
+      integer().nullable().customConstraint('REFERENCES "users" ("id")')();
 
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 
@@ -299,7 +317,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -307,9 +325,10 @@ class AppDatabase extends _$AppDatabase {
       await m.createAll();
       await _createIndexes();
     },
-    onUpgrade: (Migrator _, int __, int ___) async {
-      // Migration'lar eklenene kadar schema degisiklikleri kontrollu yapilmalidir.
-      throw UnsupportedError('Migration not implemented yet');
+    onUpgrade: (Migrator _, int from, int to) async {
+      if (from < 2) {
+        await _migrateToV2();
+      }
     },
     beforeOpen: (OpeningDetails details) async {
       await customStatement('PRAGMA foreign_keys = ON;');
@@ -348,6 +367,52 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       "CREATE UNIQUE INDEX ux_shifts_single_open ON shifts(status) WHERE status = 'open';",
     );
+  }
+
+  Future<void> _migrateToV2() async {
+    await customStatement('PRAGMA foreign_keys = OFF;');
+
+    try {
+      await customStatement(
+        'ALTER TABLE shifts ADD COLUMN cashier_previewed_by INTEGER NULL;',
+      );
+      await customStatement(
+        'ALTER TABLE shifts ADD COLUMN cashier_previewed_at INTEGER NULL;',
+      );
+
+      await customStatement('''
+        CREATE TABLE users_v2 (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          pin TEXT NULL,
+          password TEXT NULL,
+          role TEXT NOT NULL CHECK (role IN ('admin','cashier')),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+      ''');
+
+      await customStatement('''
+        INSERT INTO users_v2 (id, name, pin, password, role, is_active, created_at)
+        SELECT
+          id,
+          name,
+          pin,
+          password,
+          CASE
+            WHEN role = 'staff' THEN 'cashier'
+            ELSE role
+          END,
+          is_active,
+          created_at
+        FROM users;
+      ''');
+
+      await customStatement('DROP TABLE users;');
+      await customStatement('ALTER TABLE users_v2 RENAME TO users;');
+    } finally {
+      await customStatement('PRAGMA foreign_keys = ON;');
+    }
   }
 }
 

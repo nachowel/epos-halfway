@@ -91,7 +91,9 @@ class _PinScreenState extends ConsumerState<PinScreen> {
                     width: double.infinity,
                     height: AppSizes.minTouch,
                     child: ElevatedButton(
-                      onPressed: authState.isLoading ? null : _login,
+                      onPressed: authState.isLoading || authState.isLocked
+                          ? null
+                          : _login,
                       child: Text(
                         authState.isLoading
                             ? AppStrings.loading
@@ -100,6 +102,17 @@ class _PinScreenState extends ConsumerState<PinScreen> {
                       ),
                     ),
                   ),
+                  if (authState.errorMessage != null) ...<Widget>[
+                    const SizedBox(height: AppSizes.spacingMd),
+                    Text(
+                      authState.errorMessage!,
+                      style: const TextStyle(
+                        fontSize: AppSizes.fontSm,
+                        color: AppColors.error,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -92,6 +92,39 @@ class ShiftRepository {
     });
   }
 
+  Future<Shift> markCashierPreview({
+    required int shiftId,
+    required int userId,
+  }) async {
+    return _database.transaction(() async {
+      final db.Shift row = await _findShiftByIdOrThrow(shiftId);
+      if (_statusFromDb(row.status) != ShiftStatus.open) {
+        throw InvalidStateTransitionException('Shift is not open: $shiftId');
+      }
+
+      final DateTime previewedAt = row.cashierPreviewedAt ?? DateTime.now();
+      final int previewedBy = row.cashierPreviewedBy ?? userId;
+
+      final int updatedCount =
+          await (_database.update(
+                _database.shifts,
+              )..where((db.$ShiftsTable t) => t.id.equals(shiftId)))
+              .write(
+                db.ShiftsCompanion(
+                  cashierPreviewedBy: Value<int?>(previewedBy),
+                  cashierPreviewedAt: Value<DateTime?>(previewedAt),
+                ),
+              );
+
+      if (updatedCount == 0) {
+        throw DatabaseException('Failed to mark cashier preview: $shiftId');
+      }
+
+      final db.Shift refreshed = await _findShiftByIdOrThrow(shiftId);
+      return _mapShift(refreshed);
+    });
+  }
+
   Future<List<Shift>> getRecentShifts({int limit = 50}) async {
     final List<db.Shift> rows =
         await (_database.select(_database.shifts)
@@ -136,6 +169,8 @@ class ShiftRepository {
       openedAt: row.openedAt,
       closedBy: row.closedBy,
       closedAt: row.closedAt,
+      cashierPreviewedBy: row.cashierPreviewedBy,
+      cashierPreviewedAt: row.cashierPreviewedAt,
       status: _statusFromDb(row.status),
     );
   }

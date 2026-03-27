@@ -248,6 +248,32 @@ class TransactionRepository {
     }
   }
 
+  Future<void> updateTableNumber({
+    required int transactionId,
+    required int? tableNumber,
+  }) async {
+    final db.Transaction row = await _findTransactionByIdOrThrow(transactionId);
+    if (_statusFromDb(row.status) != TransactionStatus.open) {
+      throw InvalidStateTransitionException(
+        'Table number can be updated only for OPEN transactions.',
+      );
+    }
+
+    final int updatedCount =
+        await (_database.update(_database.transactions)
+              ..where((db.$TransactionsTable t) => t.id.equals(transactionId)))
+            .write(
+              db.TransactionsCompanion(
+                tableNumber: Value<int?>(tableNumber),
+                updatedAt: Value<DateTime>(DateTime.now()),
+              ),
+            );
+
+    if (updatedCount == 0) {
+      throw NotFoundException('Transaction not found: $transactionId');
+    }
+  }
+
   Future<void> recalculateTotals(int transactionId) async {
     await _database.transaction(() async {
       await _findTransactionByIdOrThrow(transactionId);

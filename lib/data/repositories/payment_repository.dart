@@ -21,6 +21,27 @@ class PaymentRepository {
     return row == null ? null : _mapPayment(row);
   }
 
+  Future<List<Payment>> getByShift(int shiftId) async {
+    final List<db.Payment> rows =
+        await (_database.select(_database.payments).join([
+                innerJoin(
+                  _database.transactions,
+                  _database.transactions.id.equalsExp(
+                    _database.payments.transactionId,
+                  ),
+                ),
+              ])
+              ..where(_database.transactions.shiftId.equals(shiftId))
+              ..orderBy([
+                OrderingTerm.desc(_database.payments.paidAt),
+                OrderingTerm.desc(_database.payments.id),
+              ]))
+            .map((TypedResult row) => row.readTable(_database.payments))
+            .get();
+
+    return rows.map(_mapPayment).toList(growable: false);
+  }
+
   Future<Payment> createPayment({
     required int transactionId,
     required String uuid,

@@ -6,6 +6,7 @@ import '../../core/errors/exceptions.dart';
 import '../../core/providers/app_providers.dart';
 import '../../domain/models/checkout_item.dart';
 import '../../domain/models/checkout_modifier.dart';
+import '../../domain/models/open_order_summary.dart';
 import '../../domain/models/order_modifier.dart';
 import '../../domain/models/payment.dart';
 import '../../domain/models/transaction.dart';
@@ -31,6 +32,7 @@ class OrderDetails {
 class OrdersState {
   const OrdersState({
     required this.openOrders,
+    required this.openOrderSummaries,
     required this.lineCountByOrderId,
     required this.selectedOrderId,
     required this.isRefreshing,
@@ -38,11 +40,13 @@ class OrdersState {
     required this.isPaymentLoading,
     required this.isCancelLoading,
     required this.isPrintLoading,
+    required this.isTableUpdateLoading,
     required this.errorMessage,
   });
 
   const OrdersState.initial()
     : openOrders = const <Transaction>[],
+      openOrderSummaries = const <OpenOrderSummary>[],
       lineCountByOrderId = const <int, int>{},
       selectedOrderId = null,
       isRefreshing = false,
@@ -50,9 +54,11 @@ class OrdersState {
       isPaymentLoading = false,
       isCancelLoading = false,
       isPrintLoading = false,
+      isTableUpdateLoading = false,
       errorMessage = null;
 
   final List<Transaction> openOrders;
+  final List<OpenOrderSummary> openOrderSummaries;
   final Map<int, int> lineCountByOrderId;
   final int? selectedOrderId;
   final bool isRefreshing;
@@ -60,6 +66,7 @@ class OrdersState {
   final bool isPaymentLoading;
   final bool isCancelLoading;
   final bool isPrintLoading;
+  final bool isTableUpdateLoading;
   final String? errorMessage;
 
   bool get isBusy =>
@@ -67,10 +74,12 @@ class OrdersState {
       isCheckoutLoading ||
       isPaymentLoading ||
       isCancelLoading ||
-      isPrintLoading;
+      isPrintLoading ||
+      isTableUpdateLoading;
 
   OrdersState copyWith({
     List<Transaction>? openOrders,
+    List<OpenOrderSummary>? openOrderSummaries,
     Map<int, int>? lineCountByOrderId,
     Object? selectedOrderId = _unset,
     bool? isRefreshing,
@@ -78,10 +87,12 @@ class OrdersState {
     bool? isPaymentLoading,
     bool? isCancelLoading,
     bool? isPrintLoading,
+    bool? isTableUpdateLoading,
     Object? errorMessage = _unset,
   }) {
     return OrdersState(
       openOrders: openOrders ?? this.openOrders,
+      openOrderSummaries: openOrderSummaries ?? this.openOrderSummaries,
       lineCountByOrderId: lineCountByOrderId ?? this.lineCountByOrderId,
       selectedOrderId: selectedOrderId == _unset
           ? this.selectedOrderId
@@ -91,6 +102,7 @@ class OrdersState {
       isPaymentLoading: isPaymentLoading ?? this.isPaymentLoading,
       isCancelLoading: isCancelLoading ?? this.isCancelLoading,
       isPrintLoading: isPrintLoading ?? this.isPrintLoading,
+      isTableUpdateLoading: isTableUpdateLoading ?? this.isTableUpdateLoading,
       errorMessage: errorMessage == _unset
           ? this.errorMessage
           : errorMessage as String?,
@@ -112,27 +124,22 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
   Future<void> refreshOpenOrders() async {
     state = state.copyWith(isRefreshing: true, errorMessage: null);
     try {
-      final List<Transaction> openOrders = await _ref
+      final List<OpenOrderSummary> openOrderSummaries = await _ref
           .read(orderServiceProvider)
-          .getOpenOrders();
-
-      final List<MapEntry<int, int>> lineEntries = await Future.wait(
-        openOrders.map((Transaction tx) async {
-          final List<TransactionLine> lines = await _ref
-              .read(orderServiceProvider)
-              .getOrderLines(tx.id);
-          final int lineCount = lines.fold<int>(
-            0,
-            (int sum, TransactionLine line) => sum + line.quantity,
-          );
-          return MapEntry<int, int>(tx.id, lineCount);
-        }),
-      );
+          .getOpenOrderSummaries();
+      final List<Transaction> openOrders = openOrderSummaries
+          .map((OpenOrderSummary summary) => summary.transaction)
+          .toList(growable: false);
+      final Map<int, int> lineCountByOrderId = <int, int>{
+        for (final OpenOrderSummary summary in openOrderSummaries)
+          summary.transaction.id: summary.itemCount,
+      };
 
       final int? selected = state.selectedOrderId;
       state = state.copyWith(
         openOrders: openOrders,
-        lineCountByOrderId: Map<int, int>.fromEntries(lineEntries),
+        openOrderSummaries: openOrderSummaries,
+        lineCountByOrderId: lineCountByOrderId,
         selectedOrderId:
             selected == null ||
                 !openOrders.any((Transaction t) => t.id == selected)
@@ -202,6 +209,7 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
   Future<bool> payOrder({
     required int transactionId,
     required PaymentMethod method,
+    required User currentUser,
   }) async {
     if (state.isPaymentLoading) {
       return false;
@@ -210,7 +218,11 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
     try {
       await _ref
           .read(paymentServiceProvider)
-          .payOrder(transactionId: transactionId, method: method);
+          .payOrder(
+            transactionId: transactionId,
+            method: method,
+            currentUser: currentUser,
+          );
       await refreshOpenOrders();
       state = state.copyWith(isPaymentLoading: false, errorMessage: null);
       return true;
@@ -315,6 +327,34 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
     } catch (error) {
       state = state.copyWith(errorMessage: ErrorMapper.toUserMessage(error));
       return null;
+    }
+  }
+
+  Future<bool> updateTableNumber({
+    required int transactionId,
+    required int? tableNumber,
+  }) async {
+    if (state.isTableUpdateLoading) {
+      return false;
+    }
+
+    state = state.copyWith(isTableUpdateLoading: true, errorMessage: null);
+    try {
+      await _ref
+          .read(orderServiceProvider)
+          .updateTableNumber(
+            transactionId: transactionId,
+            tableNumber: tableNumber,
+          );
+      await refreshOpenOrders();
+      state = state.copyWith(isTableUpdateLoading: false, errorMessage: null);
+      return true;
+    } catch (error) {
+      state = state.copyWith(
+        isTableUpdateLoading: false,
+        errorMessage: ErrorMapper.toUserMessage(error),
+      );
+      return false;
     }
   }
 

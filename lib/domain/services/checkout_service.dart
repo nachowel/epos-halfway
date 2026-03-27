@@ -8,19 +8,23 @@ import '../models/transaction.dart';
 import '../models/user.dart';
 import 'order_service.dart';
 import 'printer_service.dart';
+import 'shift_session_service.dart';
 
 class CheckoutService {
   CheckoutService({
     required db.AppDatabase database,
+    required ShiftSessionService shiftSessionService,
     required OrderService orderService,
     required TransactionRepository transactionRepository,
     required PrinterService printerService,
   }) : _database = database,
+       _shiftSessionService = shiftSessionService,
        _orderService = orderService,
        _transactionRepository = transactionRepository,
        _printerService = printerService;
 
   final db.AppDatabase _database;
+  final ShiftSessionService _shiftSessionService;
   final OrderService _orderService;
   final TransactionRepository _transactionRepository;
   final PrinterService _printerService;
@@ -34,12 +38,13 @@ class CheckoutService {
     if (cartItems.isEmpty) {
       throw EmptyCartException();
     }
+    await _shiftSessionService.ensureOrderCreationAllowed(currentUser);
 
     try {
       final Transaction persistedTransaction = await _database.transaction(
         () async {
           final Transaction transaction = await _orderService.createOrder(
-            userId: currentUser.id,
+            currentUser: currentUser,
             tableNumber: tableNumber,
             requestIdempotencyKey: idempotencyKey,
           );

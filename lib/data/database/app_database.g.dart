@@ -820,9 +820,7 @@ class $ProductsTable extends Products with TableInfo<$ProductsTable, Product> {
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES categories (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "categories" ("id")',
   );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
@@ -1333,9 +1331,7 @@ class $ProductModifiersTable extends ProductModifiers
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES products (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "products" ("id")',
   );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
@@ -1735,9 +1731,7 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES users (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "users" ("id")',
   );
   static const VerificationMeta _openedAtMeta = const VerificationMeta(
     'openedAt',
@@ -1761,9 +1755,7 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
     true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES users (id)',
-    ),
+    $customConstraints: 'REFERENCES "users" ("id")',
   );
   static const VerificationMeta _closedAtMeta = const VerificationMeta(
     'closedAt',
@@ -1776,6 +1768,28 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _cashierPreviewedByMeta =
+      const VerificationMeta('cashierPreviewedBy');
+  @override
+  late final GeneratedColumn<int> cashierPreviewedBy = GeneratedColumn<int>(
+    'cashier_previewed_by',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'REFERENCES "users" ("id")',
+  );
+  static const VerificationMeta _cashierPreviewedAtMeta =
+      const VerificationMeta('cashierPreviewedAt');
+  @override
+  late final GeneratedColumn<DateTime> cashierPreviewedAt =
+      GeneratedColumn<DateTime>(
+        'cashier_previewed_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -1793,6 +1807,8 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
     openedAt,
     closedBy,
     closedAt,
+    cashierPreviewedBy,
+    cashierPreviewedAt,
     status,
   ];
   @override
@@ -1836,6 +1852,24 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
         closedAt.isAcceptableOrUnknown(data['closed_at']!, _closedAtMeta),
       );
     }
+    if (data.containsKey('cashier_previewed_by')) {
+      context.handle(
+        _cashierPreviewedByMeta,
+        cashierPreviewedBy.isAcceptableOrUnknown(
+          data['cashier_previewed_by']!,
+          _cashierPreviewedByMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cashier_previewed_at')) {
+      context.handle(
+        _cashierPreviewedAtMeta,
+        cashierPreviewedAt.isAcceptableOrUnknown(
+          data['cashier_previewed_at']!,
+          _cashierPreviewedAtMeta,
+        ),
+      );
+    }
     if (data.containsKey('status')) {
       context.handle(
         _statusMeta,
@@ -1871,6 +1905,14 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, Shift> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}closed_at'],
       ),
+      cashierPreviewedBy: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}cashier_previewed_by'],
+      ),
+      cashierPreviewedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cashier_previewed_at'],
+      ),
       status: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}status'],
@@ -1890,6 +1932,8 @@ class Shift extends DataClass implements Insertable<Shift> {
   final DateTime openedAt;
   final int? closedBy;
   final DateTime? closedAt;
+  final int? cashierPreviewedBy;
+  final DateTime? cashierPreviewedAt;
   final String status;
   const Shift({
     required this.id,
@@ -1897,6 +1941,8 @@ class Shift extends DataClass implements Insertable<Shift> {
     required this.openedAt,
     this.closedBy,
     this.closedAt,
+    this.cashierPreviewedBy,
+    this.cashierPreviewedAt,
     required this.status,
   });
   @override
@@ -1910,6 +1956,12 @@ class Shift extends DataClass implements Insertable<Shift> {
     }
     if (!nullToAbsent || closedAt != null) {
       map['closed_at'] = Variable<DateTime>(closedAt);
+    }
+    if (!nullToAbsent || cashierPreviewedBy != null) {
+      map['cashier_previewed_by'] = Variable<int>(cashierPreviewedBy);
+    }
+    if (!nullToAbsent || cashierPreviewedAt != null) {
+      map['cashier_previewed_at'] = Variable<DateTime>(cashierPreviewedAt);
     }
     map['status'] = Variable<String>(status);
     return map;
@@ -1926,6 +1978,12 @@ class Shift extends DataClass implements Insertable<Shift> {
       closedAt: closedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(closedAt),
+      cashierPreviewedBy: cashierPreviewedBy == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cashierPreviewedBy),
+      cashierPreviewedAt: cashierPreviewedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cashierPreviewedAt),
       status: Value(status),
     );
   }
@@ -1941,6 +1999,10 @@ class Shift extends DataClass implements Insertable<Shift> {
       openedAt: serializer.fromJson<DateTime>(json['openedAt']),
       closedBy: serializer.fromJson<int?>(json['closedBy']),
       closedAt: serializer.fromJson<DateTime?>(json['closedAt']),
+      cashierPreviewedBy: serializer.fromJson<int?>(json['cashierPreviewedBy']),
+      cashierPreviewedAt: serializer.fromJson<DateTime?>(
+        json['cashierPreviewedAt'],
+      ),
       status: serializer.fromJson<String>(json['status']),
     );
   }
@@ -1953,6 +2015,8 @@ class Shift extends DataClass implements Insertable<Shift> {
       'openedAt': serializer.toJson<DateTime>(openedAt),
       'closedBy': serializer.toJson<int?>(closedBy),
       'closedAt': serializer.toJson<DateTime?>(closedAt),
+      'cashierPreviewedBy': serializer.toJson<int?>(cashierPreviewedBy),
+      'cashierPreviewedAt': serializer.toJson<DateTime?>(cashierPreviewedAt),
       'status': serializer.toJson<String>(status),
     };
   }
@@ -1963,6 +2027,8 @@ class Shift extends DataClass implements Insertable<Shift> {
     DateTime? openedAt,
     Value<int?> closedBy = const Value.absent(),
     Value<DateTime?> closedAt = const Value.absent(),
+    Value<int?> cashierPreviewedBy = const Value.absent(),
+    Value<DateTime?> cashierPreviewedAt = const Value.absent(),
     String? status,
   }) => Shift(
     id: id ?? this.id,
@@ -1970,6 +2036,12 @@ class Shift extends DataClass implements Insertable<Shift> {
     openedAt: openedAt ?? this.openedAt,
     closedBy: closedBy.present ? closedBy.value : this.closedBy,
     closedAt: closedAt.present ? closedAt.value : this.closedAt,
+    cashierPreviewedBy: cashierPreviewedBy.present
+        ? cashierPreviewedBy.value
+        : this.cashierPreviewedBy,
+    cashierPreviewedAt: cashierPreviewedAt.present
+        ? cashierPreviewedAt.value
+        : this.cashierPreviewedAt,
     status: status ?? this.status,
   );
   Shift copyWithCompanion(ShiftsCompanion data) {
@@ -1979,6 +2051,12 @@ class Shift extends DataClass implements Insertable<Shift> {
       openedAt: data.openedAt.present ? data.openedAt.value : this.openedAt,
       closedBy: data.closedBy.present ? data.closedBy.value : this.closedBy,
       closedAt: data.closedAt.present ? data.closedAt.value : this.closedAt,
+      cashierPreviewedBy: data.cashierPreviewedBy.present
+          ? data.cashierPreviewedBy.value
+          : this.cashierPreviewedBy,
+      cashierPreviewedAt: data.cashierPreviewedAt.present
+          ? data.cashierPreviewedAt.value
+          : this.cashierPreviewedAt,
       status: data.status.present ? data.status.value : this.status,
     );
   }
@@ -1991,14 +2069,24 @@ class Shift extends DataClass implements Insertable<Shift> {
           ..write('openedAt: $openedAt, ')
           ..write('closedBy: $closedBy, ')
           ..write('closedAt: $closedAt, ')
+          ..write('cashierPreviewedBy: $cashierPreviewedBy, ')
+          ..write('cashierPreviewedAt: $cashierPreviewedAt, ')
           ..write('status: $status')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, openedBy, openedAt, closedBy, closedAt, status);
+  int get hashCode => Object.hash(
+    id,
+    openedBy,
+    openedAt,
+    closedBy,
+    closedAt,
+    cashierPreviewedBy,
+    cashierPreviewedAt,
+    status,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2008,6 +2096,8 @@ class Shift extends DataClass implements Insertable<Shift> {
           other.openedAt == this.openedAt &&
           other.closedBy == this.closedBy &&
           other.closedAt == this.closedAt &&
+          other.cashierPreviewedBy == this.cashierPreviewedBy &&
+          other.cashierPreviewedAt == this.cashierPreviewedAt &&
           other.status == this.status);
 }
 
@@ -2017,6 +2107,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
   final Value<DateTime> openedAt;
   final Value<int?> closedBy;
   final Value<DateTime?> closedAt;
+  final Value<int?> cashierPreviewedBy;
+  final Value<DateTime?> cashierPreviewedAt;
   final Value<String> status;
   const ShiftsCompanion({
     this.id = const Value.absent(),
@@ -2024,6 +2116,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
     this.openedAt = const Value.absent(),
     this.closedBy = const Value.absent(),
     this.closedAt = const Value.absent(),
+    this.cashierPreviewedBy = const Value.absent(),
+    this.cashierPreviewedAt = const Value.absent(),
     this.status = const Value.absent(),
   });
   ShiftsCompanion.insert({
@@ -2032,6 +2126,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
     this.openedAt = const Value.absent(),
     this.closedBy = const Value.absent(),
     this.closedAt = const Value.absent(),
+    this.cashierPreviewedBy = const Value.absent(),
+    this.cashierPreviewedAt = const Value.absent(),
     this.status = const Value.absent(),
   }) : openedBy = Value(openedBy);
   static Insertable<Shift> custom({
@@ -2040,6 +2136,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
     Expression<DateTime>? openedAt,
     Expression<int>? closedBy,
     Expression<DateTime>? closedAt,
+    Expression<int>? cashierPreviewedBy,
+    Expression<DateTime>? cashierPreviewedAt,
     Expression<String>? status,
   }) {
     return RawValuesInsertable({
@@ -2048,6 +2146,10 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
       if (openedAt != null) 'opened_at': openedAt,
       if (closedBy != null) 'closed_by': closedBy,
       if (closedAt != null) 'closed_at': closedAt,
+      if (cashierPreviewedBy != null)
+        'cashier_previewed_by': cashierPreviewedBy,
+      if (cashierPreviewedAt != null)
+        'cashier_previewed_at': cashierPreviewedAt,
       if (status != null) 'status': status,
     });
   }
@@ -2058,6 +2160,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
     Value<DateTime>? openedAt,
     Value<int?>? closedBy,
     Value<DateTime?>? closedAt,
+    Value<int?>? cashierPreviewedBy,
+    Value<DateTime?>? cashierPreviewedAt,
     Value<String>? status,
   }) {
     return ShiftsCompanion(
@@ -2066,6 +2170,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
       openedAt: openedAt ?? this.openedAt,
       closedBy: closedBy ?? this.closedBy,
       closedAt: closedAt ?? this.closedAt,
+      cashierPreviewedBy: cashierPreviewedBy ?? this.cashierPreviewedBy,
+      cashierPreviewedAt: cashierPreviewedAt ?? this.cashierPreviewedAt,
       status: status ?? this.status,
     );
   }
@@ -2088,6 +2194,14 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
     if (closedAt.present) {
       map['closed_at'] = Variable<DateTime>(closedAt.value);
     }
+    if (cashierPreviewedBy.present) {
+      map['cashier_previewed_by'] = Variable<int>(cashierPreviewedBy.value);
+    }
+    if (cashierPreviewedAt.present) {
+      map['cashier_previewed_at'] = Variable<DateTime>(
+        cashierPreviewedAt.value,
+      );
+    }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
@@ -2102,6 +2216,8 @@ class ShiftsCompanion extends UpdateCompanion<Shift> {
           ..write('openedAt: $openedAt, ')
           ..write('closedBy: $closedBy, ')
           ..write('closedAt: $closedAt, ')
+          ..write('cashierPreviewedBy: $cashierPreviewedBy, ')
+          ..write('cashierPreviewedAt: $cashierPreviewedAt, ')
           ..write('status: $status')
           ..write(')'))
         .toString();
@@ -2147,9 +2263,7 @@ class $TransactionsTable extends Transactions
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES shifts (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "shifts" ("id")',
   );
   static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
   @override
@@ -2159,9 +2273,7 @@ class $TransactionsTable extends Transactions
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES users (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "users" ("id")',
   );
   static const VerificationMeta _tableNumberMeta = const VerificationMeta(
     'tableNumber',
@@ -2272,9 +2384,7 @@ class $TransactionsTable extends Transactions
     true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES users (id)',
-    ),
+    $customConstraints: 'REFERENCES "users" ("id")',
   );
   static const VerificationMeta _idempotencyKeyMeta = const VerificationMeta(
     'idempotencyKey',
@@ -3125,9 +3235,7 @@ class $TransactionLinesTable extends TransactionLines
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES transactions (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "transactions" ("id")',
   );
   static const VerificationMeta _productIdMeta = const VerificationMeta(
     'productId',
@@ -3139,9 +3247,7 @@ class $TransactionLinesTable extends TransactionLines
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES products (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "products" ("id")',
   );
   static const VerificationMeta _productNameMeta = const VerificationMeta(
     'productName',
@@ -3650,9 +3756,7 @@ class $OrderModifiersTable extends OrderModifiers
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES transaction_lines (id)',
-    ),
+    $customConstraints: 'NOT NULL REFERENCES "transaction_lines" ("id")',
   );
   static const VerificationMeta _actionMeta = const VerificationMeta('action');
   @override
@@ -4063,9 +4167,7 @@ class $PaymentsTable extends Payments with TableInfo<$PaymentsTable, Payment> {
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'UNIQUE REFERENCES transactions (id)',
-    ),
+    $customConstraints: 'UNIQUE NOT NULL REFERENCES "transactions" ("id")',
   );
   static const VerificationMeta _methodMeta = const VerificationMeta('method');
   @override
@@ -4471,9 +4573,7 @@ class $ReportSettingsTable extends ReportSettings
     true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'REFERENCES users (id)',
-    ),
+    $customConstraints: 'REFERENCES "users" ("id")',
   );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
@@ -5822,6 +5922,29 @@ final class $$UsersTableReferences
     );
   }
 
+  static MultiTypedResultKey<$ShiftsTable, List<Shift>>
+  _cashierPreviewedShiftsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.shifts,
+        aliasName: $_aliasNameGenerator(
+          db.users.id,
+          db.shifts.cashierPreviewedBy,
+        ),
+      );
+
+  $$ShiftsTableProcessedTableManager get cashierPreviewedShifts {
+    final manager = $$ShiftsTableTableManager($_db, $_db.shifts).filter(
+      (f) => f.cashierPreviewedBy.id.sqlEquals($_itemColumn<int>('id')!),
+    );
+
+    final cache = $_typedResult.readTableOrNull(
+      _cashierPreviewedShiftsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
   static MultiTypedResultKey<$TransactionsTable, List<Transaction>>
   _createdTransactionsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
     db.transactions,
@@ -5961,6 +6084,31 @@ class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
       getCurrentColumn: (t) => t.id,
       referencedTable: $db.shifts,
       getReferencedColumn: (t) => t.closedBy,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShiftsTableFilterComposer(
+            $db: $db,
+            $table: $db.shifts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> cashierPreviewedShifts(
+    Expression<bool> Function($$ShiftsTableFilterComposer f) f,
+  ) {
+    final $$ShiftsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shifts,
+      getReferencedColumn: (t) => t.cashierPreviewedBy,
       builder:
           (
             joinBuilder, {
@@ -6179,6 +6327,31 @@ class $$UsersTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> cashierPreviewedShifts<T extends Object>(
+    Expression<T> Function($$ShiftsTableAnnotationComposer a) f,
+  ) {
+    final $$ShiftsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.shifts,
+      getReferencedColumn: (t) => t.cashierPreviewedBy,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ShiftsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.shifts,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<T> createdTransactions<T extends Object>(
     Expression<T> Function($$TransactionsTableAnnotationComposer a) f,
   ) {
@@ -6271,6 +6444,7 @@ class $$UsersTableTableManager
           PrefetchHooks Function({
             bool openedShifts,
             bool closedShifts,
+            bool cashierPreviewedShifts,
             bool createdTransactions,
             bool cancelledTransactions,
             bool reportSettingsRefs,
@@ -6333,6 +6507,7 @@ class $$UsersTableTableManager
               ({
                 openedShifts = false,
                 closedShifts = false,
+                cashierPreviewedShifts = false,
                 createdTransactions = false,
                 cancelledTransactions = false,
                 reportSettingsRefs = false,
@@ -6342,6 +6517,7 @@ class $$UsersTableTableManager
                   explicitlyWatchedTables: [
                     if (openedShifts) db.shifts,
                     if (closedShifts) db.shifts,
+                    if (cashierPreviewedShifts) db.shifts,
                     if (createdTransactions) db.transactions,
                     if (cancelledTransactions) db.transactions,
                     if (reportSettingsRefs) db.reportSettings,
@@ -6380,6 +6556,23 @@ class $$UsersTableTableManager
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.closedBy == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (cashierPreviewedShifts)
+                        await $_getPrefetchedData<User, $UsersTable, Shift>(
+                          currentTable: table,
+                          referencedTable: $$UsersTableReferences
+                              ._cashierPreviewedShiftsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$UsersTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).cashierPreviewedShifts,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.cashierPreviewedBy == item.id,
                               ),
                           typedResults: items,
                         ),
@@ -6469,6 +6662,7 @@ typedef $$UsersTableProcessedTableManager =
       PrefetchHooks Function({
         bool openedShifts,
         bool closedShifts,
+        bool cashierPreviewedShifts,
         bool createdTransactions,
         bool cancelledTransactions,
         bool reportSettingsRefs,
@@ -7699,6 +7893,8 @@ typedef $$ShiftsTableCreateCompanionBuilder =
       Value<DateTime> openedAt,
       Value<int?> closedBy,
       Value<DateTime?> closedAt,
+      Value<int?> cashierPreviewedBy,
+      Value<DateTime?> cashierPreviewedAt,
       Value<String> status,
     });
 typedef $$ShiftsTableUpdateCompanionBuilder =
@@ -7708,6 +7904,8 @@ typedef $$ShiftsTableUpdateCompanionBuilder =
       Value<DateTime> openedAt,
       Value<int?> closedBy,
       Value<DateTime?> closedAt,
+      Value<int?> cashierPreviewedBy,
+      Value<DateTime?> cashierPreviewedAt,
       Value<String> status,
     });
 
@@ -7745,6 +7943,25 @@ final class $$ShiftsTableReferences
       $_db.users,
     ).filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_closedByTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $UsersTable _cashierPreviewedByTable(_$AppDatabase db) =>
+      db.users.createAlias(
+        $_aliasNameGenerator(db.shifts.cashierPreviewedBy, db.users.id),
+      );
+
+  $$UsersTableProcessedTableManager? get cashierPreviewedBy {
+    final $_column = $_itemColumn<int>('cashier_previewed_by');
+    if ($_column == null) return null;
+    final manager = $$UsersTableTableManager(
+      $_db,
+      $_db.users,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_cashierPreviewedByTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
@@ -7794,6 +8011,11 @@ class $$ShiftsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<DateTime> get cashierPreviewedAt => $composableBuilder(
+    column: $table.cashierPreviewedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnFilters(column),
@@ -7826,6 +8048,29 @@ class $$ShiftsTableFilterComposer
     final $$UsersTableFilterComposer composer = $composerBuilder(
       composer: this,
       getCurrentColumn: (t) => t.closedBy,
+      referencedTable: $db.users,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$UsersTableFilterComposer(
+            $db: $db,
+            $table: $db.users,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$UsersTableFilterComposer get cashierPreviewedBy {
+    final $$UsersTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cashierPreviewedBy,
       referencedTable: $db.users,
       getReferencedColumn: (t) => t.id,
       builder:
@@ -7895,6 +8140,11 @@ class $$ShiftsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<DateTime> get cashierPreviewedAt => $composableBuilder(
+    column: $table.cashierPreviewedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
@@ -7945,6 +8195,29 @@ class $$ShiftsTableOrderingComposer
     );
     return composer;
   }
+
+  $$UsersTableOrderingComposer get cashierPreviewedBy {
+    final $$UsersTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cashierPreviewedBy,
+      referencedTable: $db.users,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$UsersTableOrderingComposer(
+            $db: $db,
+            $table: $db.users,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$ShiftsTableAnnotationComposer
@@ -7964,6 +8237,11 @@ class $$ShiftsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get closedAt =>
       $composableBuilder(column: $table.closedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cashierPreviewedAt => $composableBuilder(
+    column: $table.cashierPreviewedAt,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
@@ -7995,6 +8273,29 @@ class $$ShiftsTableAnnotationComposer
     final $$UsersTableAnnotationComposer composer = $composerBuilder(
       composer: this,
       getCurrentColumn: (t) => t.closedBy,
+      referencedTable: $db.users,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$UsersTableAnnotationComposer(
+            $db: $db,
+            $table: $db.users,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$UsersTableAnnotationComposer get cashierPreviewedBy {
+    final $$UsersTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cashierPreviewedBy,
       referencedTable: $db.users,
       getReferencedColumn: (t) => t.id,
       builder:
@@ -8056,6 +8357,7 @@ class $$ShiftsTableTableManager
           PrefetchHooks Function({
             bool openedBy,
             bool closedBy,
+            bool cashierPreviewedBy,
             bool transactionsRefs,
           })
         > {
@@ -8077,6 +8379,8 @@ class $$ShiftsTableTableManager
                 Value<DateTime> openedAt = const Value.absent(),
                 Value<int?> closedBy = const Value.absent(),
                 Value<DateTime?> closedAt = const Value.absent(),
+                Value<int?> cashierPreviewedBy = const Value.absent(),
+                Value<DateTime?> cashierPreviewedAt = const Value.absent(),
                 Value<String> status = const Value.absent(),
               }) => ShiftsCompanion(
                 id: id,
@@ -8084,6 +8388,8 @@ class $$ShiftsTableTableManager
                 openedAt: openedAt,
                 closedBy: closedBy,
                 closedAt: closedAt,
+                cashierPreviewedBy: cashierPreviewedBy,
+                cashierPreviewedAt: cashierPreviewedAt,
                 status: status,
               ),
           createCompanionCallback:
@@ -8093,6 +8399,8 @@ class $$ShiftsTableTableManager
                 Value<DateTime> openedAt = const Value.absent(),
                 Value<int?> closedBy = const Value.absent(),
                 Value<DateTime?> closedAt = const Value.absent(),
+                Value<int?> cashierPreviewedBy = const Value.absent(),
+                Value<DateTime?> cashierPreviewedAt = const Value.absent(),
                 Value<String> status = const Value.absent(),
               }) => ShiftsCompanion.insert(
                 id: id,
@@ -8100,6 +8408,8 @@ class $$ShiftsTableTableManager
                 openedAt: openedAt,
                 closedBy: closedBy,
                 closedAt: closedAt,
+                cashierPreviewedBy: cashierPreviewedBy,
+                cashierPreviewedAt: cashierPreviewedAt,
                 status: status,
               ),
           withReferenceMapper: (p0) => p0
@@ -8109,7 +8419,12 @@ class $$ShiftsTableTableManager
               )
               .toList(),
           prefetchHooksCallback:
-              ({openedBy = false, closedBy = false, transactionsRefs = false}) {
+              ({
+                openedBy = false,
+                closedBy = false,
+                cashierPreviewedBy = false,
+                transactionsRefs = false,
+              }) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
@@ -8153,6 +8468,19 @@ class $$ShiftsTableTableManager
                                         ._closedByTable(db),
                                     referencedColumn: $$ShiftsTableReferences
                                         ._closedByTable(db)
+                                        .id,
+                                  )
+                                  as T;
+                        }
+                        if (cashierPreviewedBy) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.cashierPreviewedBy,
+                                    referencedTable: $$ShiftsTableReferences
+                                        ._cashierPreviewedByTable(db),
+                                    referencedColumn: $$ShiftsTableReferences
+                                        ._cashierPreviewedByTable(db)
                                         .id,
                                   )
                                   as T;
@@ -8206,6 +8534,7 @@ typedef $$ShiftsTableProcessedTableManager =
       PrefetchHooks Function({
         bool openedBy,
         bool closedBy,
+        bool cashierPreviewedBy,
         bool transactionsRefs,
       })
     >;

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_strings.dart';
 import '../../core/errors/error_mapper.dart';
 import '../../core/providers/app_providers.dart';
 import '../../domain/models/user.dart';
@@ -9,23 +10,33 @@ class AuthState {
     required this.currentUser,
     required this.isLoading,
     required this.errorMessage,
+    required this.failedAttempts,
+    required this.lockedUntil,
   });
 
   const AuthState.initial()
     : currentUser = null,
       isLoading = false,
-      errorMessage = null;
+      errorMessage = null,
+      failedAttempts = 0,
+      lockedUntil = null;
 
   final User? currentUser;
   final bool isLoading;
   final String? errorMessage;
+  final int failedAttempts;
+  final DateTime? lockedUntil;
 
   bool get isAuthenticated => currentUser != null;
+  bool get isLocked =>
+      lockedUntil != null && lockedUntil!.isAfter(DateTime.now());
 
   AuthState copyWith({
     Object? currentUser = _unset,
     bool? isLoading,
     Object? errorMessage = _unset,
+    int? failedAttempts,
+    Object? lockedUntil = _unset,
   }) {
     return AuthState(
       currentUser: currentUser == _unset
@@ -35,6 +46,10 @@ class AuthState {
       errorMessage: errorMessage == _unset
           ? this.errorMessage
           : errorMessage as String?,
+      failedAttempts: failedAttempts ?? this.failedAttempts,
+      lockedUntil: lockedUntil == _unset
+          ? this.lockedUntil
+          : lockedUntil as DateTime?,
     );
   }
 }
@@ -43,16 +58,33 @@ class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._ref) : super(const AuthState.initial());
 
   final Ref _ref;
+  static const int _maxFailedAttempts = 3;
+  static const Duration _lockDuration = Duration(seconds: 30);
 
   Future<User?> loginWithPin(String pin) async {
+    _pruneExpiredLock();
+    if (state.isLocked) {
+      state = state.copyWith(
+        errorMessage: AppStrings.authLocked,
+        currentUser: null,
+      );
+      return null;
+    }
+
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final user = await _ref.read(authServiceProvider).loginWithPin(pin);
       if (user == null) {
+        final int nextFailedAttempts = state.failedAttempts + 1;
+        final bool shouldLock = nextFailedAttempts >= _maxFailedAttempts;
         state = state.copyWith(
           isLoading: false,
-          errorMessage: 'Invalid PIN or inactive user.',
+          errorMessage: shouldLock
+              ? AppStrings.authLocked
+              : AppStrings.invalidPinOrInactiveUser,
           currentUser: null,
+          failedAttempts: shouldLock ? 0 : nextFailedAttempts,
+          lockedUntil: shouldLock ? DateTime.now().add(_lockDuration) : null,
         );
         return null;
       }
@@ -60,6 +92,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         errorMessage: null,
         currentUser: user,
+        failedAttempts: 0,
+        lockedUntil: null,
       );
       return user;
     } catch (error) {
@@ -73,6 +107,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> loadUserById(int userId) async {
+    _pruneExpiredLock();
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final user = await _ref.read(authServiceProvider).getUserById(userId);
@@ -91,6 +126,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void logout() {
     state = const AuthState.initial();
+  }
+
+  void _pruneExpiredLock() {
+    if (state.lockedUntil == null || state.isLocked) {
+      return;
+    }
+    state = state.copyWith(
+      failedAttempts: 0,
+      lockedUntil: null,
+      errorMessage: null,
+    );
   }
 }
 

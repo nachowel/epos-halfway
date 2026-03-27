@@ -3,9 +3,23 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/errors/exceptions.dart';
+import '../../domain/models/shift_report.dart';
 import '../../domain/models/transaction.dart';
 import '../../data/repositories/transaction_repository.dart';
 
+/// Handles all ESC/POS printing through a serialized queue (in-memory mutex).
+///
+/// Z Report print pipeline:
+///   report_service.dart  → raw data (real amounts)
+///   report_visibility_service.dart → role-based masking
+///   printer_service.printZReport() → prints the already-masked ShiftReport
+///
+/// The printer MUST NOT bypass the visibility pipeline.
+/// - Cashier print  → receives masked ShiftReport (via ReportVisibilityService)
+/// - Admin print    → receives raw ShiftReport (ReportVisibilityService returns raw for admin)
+///
+/// Callers are responsible for passing the correct (already-masked) report.
+/// This service never reads visibility_ratio or applies masking itself.
 class PrinterService {
   PrinterService(this._transactionRepository);
 
@@ -60,6 +74,25 @@ class PrinterService {
       await _transactionRepository.updatePrintFlag(
         transactionId: transactionId,
         receiptPrinted: true,
+      );
+    });
+  }
+
+  /// Prints a Z report using already-masked data from the visibility pipeline.
+  ///
+  /// The [report] parameter MUST come from ReportVisibilityService so that:
+  /// - Cashier callers receive masked amounts
+  /// - Admin callers receive real amounts
+  ///
+  /// This method does NOT apply any visibility masking itself.
+  Future<void> printZReport(ShiftReport report) async {
+    await _runSerialized(() async {
+      // TODO(nacho): Integrate real ESC/POS Z report printing flow here.
+      debugPrint(
+        'Z Report placeholder -> shift=${report.shiftId}, '
+        'paidTotal=${report.paidTotalMinor}, '
+        'cashTotal=${report.cashTotalMinor}, '
+        'cardTotal=${report.cardTotalMinor}',
       );
     });
   }

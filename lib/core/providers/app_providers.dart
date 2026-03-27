@@ -18,6 +18,7 @@ import '../../domain/services/payment_service.dart';
 import '../../domain/services/printer_service.dart';
 import '../../domain/services/report_service.dart';
 import '../../domain/services/report_visibility_service.dart';
+import '../../domain/services/shift_session_service.dart';
 
 final Provider<AppDatabase> appDatabaseProvider = Provider<AppDatabase>((_) {
   throw UnimplementedError('AppDatabase must be overridden at app bootstrap.');
@@ -68,8 +69,16 @@ final Provider<SettingsRepository> settingsRepositoryProvider =
       (Ref ref) => SettingsRepository(ref.watch(appDatabaseProvider)),
     );
 
+final Provider<ShiftSessionService> shiftSessionServiceProvider =
+    Provider<ShiftSessionService>(
+      (Ref ref) => ShiftSessionService(ref.watch(shiftRepositoryProvider)),
+    );
+
 final Provider<AuthService> authServiceProvider = Provider<AuthService>(
-  (Ref ref) => AuthService(ref.watch(userRepositoryProvider)),
+  (Ref ref) => AuthService(
+    ref.watch(userRepositoryProvider),
+    ref.watch(shiftSessionServiceProvider),
+  ),
 );
 
 final Provider<CatalogService> catalogServiceProvider =
@@ -83,7 +92,7 @@ final Provider<CatalogService> catalogServiceProvider =
 
 final Provider<OrderService> orderServiceProvider = Provider<OrderService>(
   (Ref ref) => OrderService(
-    shiftRepository: ref.watch(shiftRepositoryProvider),
+    shiftSessionService: ref.watch(shiftSessionServiceProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
   ),
 );
@@ -97,6 +106,7 @@ final Provider<PaymentService> paymentServiceProvider =
     Provider<PaymentService>(
       (Ref ref) => PaymentService(
         paymentRepository: ref.watch(paymentRepositoryProvider),
+        shiftSessionService: ref.watch(shiftSessionServiceProvider),
         transactionRepository: ref.watch(transactionRepositoryProvider),
         printerService: ref.watch(printerServiceProvider),
       ),
@@ -106,6 +116,7 @@ final Provider<CheckoutService> checkoutServiceProvider =
     Provider<CheckoutService>(
       (Ref ref) => CheckoutService(
         database: ref.watch(appDatabaseProvider),
+        shiftSessionService: ref.watch(shiftSessionServiceProvider),
         orderService: ref.watch(orderServiceProvider),
         transactionRepository: ref.watch(transactionRepositoryProvider),
         printerService: ref.watch(printerServiceProvider),
@@ -115,7 +126,11 @@ final Provider<CheckoutService> checkoutServiceProvider =
 final Provider<ReportService> reportServiceProvider = Provider<ReportService>(
   (Ref ref) => ReportService(
     shiftRepository: ref.watch(shiftRepositoryProvider),
+    shiftSessionService: ref.watch(shiftSessionServiceProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
+    paymentRepository: ref.watch(paymentRepositoryProvider),
+    settingsRepository: ref.watch(settingsRepositoryProvider),
+    reportVisibilityService: ref.watch(reportVisibilityServiceProvider),
   ),
 );
 

@@ -12,6 +12,7 @@ import '../../providers/cart_provider.dart';
 import '../../providers/orders_provider.dart';
 import '../../providers/products_provider.dart';
 import '../../providers/shift_provider.dart';
+import '../../widgets/section_app_bar.dart';
 import 'widgets/cart_panel.dart';
 import 'widgets/category_bar.dart';
 import 'widgets/modifier_popup.dart';
@@ -69,8 +70,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       _showMessage(AppStrings.loginFailed);
       return;
     }
-    if (shiftState.openShift == null) {
-      _showMessage(AppStrings.shiftNotActiveError);
+    if (shiftState.backendOpenShift == null || shiftState.salesLocked) {
+      _showMessage(shiftState.lockReason ?? AppStrings.shiftNotActiveError);
       return;
     }
 
@@ -120,9 +121,17 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         return PaymentDialog(
           totalAmountMinor: totalAmountMinor,
           onSubmit: (paymentMethod) async {
+            final currentUser = ref.read(authNotifierProvider).currentUser;
+            if (currentUser == null) {
+              return AppStrings.accessDenied;
+            }
             final bool success = await ref
                 .read(ordersNotifierProvider.notifier)
-                .payOrder(transactionId: transactionId, method: paymentMethod);
+                .payOrder(
+                  transactionId: transactionId,
+                  method: paymentMethod,
+                  currentUser: currentUser,
+                );
             if (success) {
               return null;
             }
@@ -150,25 +159,33 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final ordersState = ref.watch(ordersNotifierProvider);
     final shiftState = ref.watch(shiftNotifierProvider);
 
-    final bool hasOpenShift = shiftState.openShift != null;
+    final bool hasOpenShift = shiftState.backendOpenShift != null;
     final bool cartHasItems = !cartState.isEmpty;
-    final bool canCheckout =
-        hasOpenShift && cartHasItems && !ordersState.isBusy;
+    final bool canCheckout = hasOpenShift &&
+        !shiftState.salesLocked &&
+        cartHasItems &&
+        !ordersState.isBusy;
+    final String? shiftBannerMessage = hasOpenShift
+        ? (shiftState.salesLocked
+              ? (shiftState.lockReason ?? AppStrings.salesLockedForCashier)
+              : null)
+        : AppStrings.shiftNotActiveError;
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: SectionAppBar(
+        title: AppStrings.navPos,
+        currentRoute: '/pos',
+        currentUser: authState.currentUser,
+        currentShift: shiftState.currentShift,
+        onLogout: () {
+          ref.read(authNotifierProvider.notifier).logout();
+          context.go('/login');
+        },
+      ),
       body: SafeArea(
         child: Column(
           children: <Widget>[
-            _PosTopBar(
-              userName: authState.currentUser?.name,
-              openShiftId: shiftState.openShift?.id,
-              onGoOrders: () => context.go('/orders'),
-              onLogout: () {
-                ref.read(authNotifierProvider.notifier).logout();
-                context.go('/login');
-              },
-            ),
             if (productsState.errorMessage != null)
               Container(
                 width: double.infinity,
@@ -198,7 +215,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                 .selectCategory(categoryId);
                           },
                         ),
-                        if (!hasOpenShift)
+                        if (shiftBannerMessage != null)
                           Container(
                             width: double.infinity,
                             margin: const EdgeInsets.symmetric(
@@ -211,9 +228,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                                 AppSizes.radiusMd,
                               ),
                             ),
-                            child: const Text(
-                              AppStrings.shiftNotActiveError,
-                              style: TextStyle(
+                            child: Text(
+                              shiftBannerMessage,
+                              style: const TextStyle(
                                 fontSize: AppSizes.fontSm,
                                 color: AppColors.warning,
                               ),
@@ -262,115 +279,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _PosTopBar extends StatelessWidget {
-  const _PosTopBar({
-    required this.userName,
-    required this.openShiftId,
-    required this.onGoOrders,
-    required this.onLogout,
-  });
-
-  final String? userName;
-  final int? openShiftId;
-  final VoidCallback onGoOrders;
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: AppSizes.topBarHeight,
-      color: AppColors.surface,
-      padding: const EdgeInsets.symmetric(horizontal: AppSizes.spacingMd),
-      child: Row(
-        children: <Widget>[
-          const Text(
-            AppStrings.appName,
-            style: TextStyle(
-              fontSize: AppSizes.fontLg,
-              fontWeight: FontWeight.w800,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: AppSizes.spacingMd),
-          if (userName != null)
-            Text(
-              userName!,
-              style: const TextStyle(
-                fontSize: AppSizes.fontSm,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          const SizedBox(width: AppSizes.spacingMd),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSizes.spacingSm,
-              vertical: AppSizes.spacingXs,
-            ),
-            decoration: BoxDecoration(
-              color: openShiftId == null
-                  ? AppColors.error.withValues(alpha: 0.12)
-                  : AppColors.success.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppSizes.radiusSm),
-            ),
-            child: Text(
-              openShiftId == null
-                  ? AppStrings.shiftInactive
-                  : AppStrings.openShiftLabel(openShiftId!),
-              style: TextStyle(
-                fontSize: AppSizes.fontSm,
-                color: openShiftId == null
-                    ? AppColors.error
-                    : AppColors.success,
-              ),
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            width: AppSizes.minTouch * 1.8,
-            height: AppSizes.minTouch,
-            child: ElevatedButton(
-              onPressed: null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                disabledBackgroundColor: AppColors.primary,
-                disabledForegroundColor: AppColors.surface,
-              ),
-              child: const Text(
-                AppStrings.navPos,
-                style: TextStyle(fontSize: AppSizes.fontSm),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSizes.spacingSm),
-          SizedBox(
-            width: AppSizes.minTouch * 2,
-            height: AppSizes.minTouch,
-            child: OutlinedButton(
-              onPressed: onGoOrders,
-              child: const Text(
-                AppStrings.navOrders,
-                style: TextStyle(fontSize: AppSizes.fontSm),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSizes.spacingSm),
-          SizedBox(
-            width: AppSizes.minTouch * 1.6,
-            height: AppSizes.minTouch,
-            child: OutlinedButton(
-              onPressed: onLogout,
-              child: const Text(
-                AppStrings.navLogout,
-                style: TextStyle(fontSize: AppSizes.fontSm),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

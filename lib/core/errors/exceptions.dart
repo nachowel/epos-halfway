@@ -29,6 +29,35 @@ class ShiftNotActiveException extends AppException {
     : super('No active shift. Please contact an admin.');
 }
 
+class ShiftClosedException extends AppException {
+  ShiftClosedException()
+    : super('Shift is already closed.');
+}
+
+class ShiftMismatchException extends AppException {
+  ShiftMismatchException({required this.transactionShiftId, required this.activeShiftId})
+    : super(
+        'Transaction belongs to shift $transactionShiftId but active shift is $activeShiftId.',
+      );
+
+  final int transactionShiftId;
+  final int activeShiftId;
+}
+
+class CashierPreviewLockedException extends AppException {
+  CashierPreviewLockedException()
+    : super(
+        'Cashier end-of-day preview is already taken. Sales and payments are locked for all cashiers. Admin final close is required.',
+      );
+}
+
+class CashierShiftClosedException extends AppException {
+  CashierShiftClosedException()
+    : super(
+        'Cashier end-of-day preview is already taken. Admin final close is required.',
+      );
+}
+
 class OpenOrdersExistException extends AppException {
   OpenOrdersExistException(this.count)
     : super(

@@ -7,9 +7,12 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../domain/models/open_order_summary.dart';
 import '../../../domain/models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/orders_provider.dart';
+import '../../providers/shift_provider.dart';
+import '../../widgets/section_app_bar.dart';
 import '../pos/widgets/payment_dialog.dart';
 
 class OpenOrdersScreen extends ConsumerStatefulWidget {
@@ -44,10 +47,18 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
             final OrdersState dialogState = dialogRef.watch(
               ordersNotifierProvider,
             );
+            final ShiftState shiftState = dialogRef.watch(
+              shiftNotifierProvider,
+            );
             final bool isActionLocked =
                 dialogState.isPaymentLoading ||
                 dialogState.isCancelLoading ||
-                dialogState.isPrintLoading;
+                dialogState.isPrintLoading ||
+                dialogState.isTableUpdateLoading;
+            final bool canAcceptPayment =
+                !shiftState.paymentsLocked &&
+                shiftState.backendOpenShift != null &&
+                shiftState.backendOpenShift!.id == details.transaction.shiftId;
 
             return AlertDialog(
               title: Text(
@@ -61,12 +72,39 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        '${AppStrings.total}: ${CurrencyFormatter.fromMinor(details.transaction.totalAmountMinor)}',
+                        '${AppStrings.orderNumber(details.transaction.id)} · ${DateFormatter.formatTime(details.transaction.createdAt)}',
                         style: const TextStyle(
                           fontSize: AppSizes.fontSm,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      const SizedBox(height: AppSizes.spacingXs),
+                      Text(
+                        details.transaction.tableNumber == null
+                            ? AppStrings.table
+                            : '${AppStrings.table}: ${details.transaction.tableNumber}',
+                        style: const TextStyle(
+                          fontSize: AppSizes.fontSm,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      if (!canAcceptPayment &&
+                          details.transaction.status == TransactionStatus.open)
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            top: AppSizes.spacingSm,
+                          ),
+                          child: Text(
+                            shiftState.paymentsLocked
+                                ? AppStrings.cashierPreviewLock
+                                : AppStrings.paymentBlockedShiftClosed,
+                            style: const TextStyle(
+                              fontSize: AppSizes.fontSm,
+                              color: AppColors.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: AppSizes.spacingMd),
                       ...details.lines.map((OrderDetailLine detailLine) {
                         return Padding(
@@ -109,6 +147,30 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                   child: const Text(
                     AppStrings.cancel,
                     style: TextStyle(fontSize: AppSizes.fontSm),
+                  ),
+                ),
+                TextButton(
+                  onPressed:
+                      details.transaction.status == TransactionStatus.open &&
+                          !isActionLocked
+                      ? () async {
+                          final bool updated = await _showTableDialog(
+                            details.transaction,
+                          );
+                          if (!mounted) {
+                            return;
+                          }
+                          if (updated) {
+                            Navigator.of(this.context).pop();
+                            _showMessage(AppStrings.tableUpdated);
+                          }
+                        }
+                      : null,
+                  child: Text(
+                    details.transaction.tableNumber == null
+                        ? AppStrings.addTable
+                        : AppStrings.editTable,
+                    style: const TextStyle(fontSize: AppSizes.fontSm),
                   ),
                 ),
                 TextButton(
@@ -166,6 +228,7 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                 ElevatedButton(
                   onPressed:
                       details.transaction.status == TransactionStatus.open &&
+                          canAcceptPayment &&
                           !isActionLocked
                       ? () async {
                           final bool paid = await _showPaymentDialog(
@@ -272,9 +335,17 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
         return PaymentDialog(
           totalAmountMinor: totalAmountMinor,
           onSubmit: (paymentMethod) async {
+            final currentUser = ref.read(authNotifierProvider).currentUser;
+            if (currentUser == null) {
+              return AppStrings.accessDenied;
+            }
             final bool success = await ref
                 .read(ordersNotifierProvider.notifier)
-                .payOrder(transactionId: transactionId, method: paymentMethod);
+                .payOrder(
+                  transactionId: transactionId,
+                  method: paymentMethod,
+                  currentUser: currentUser,
+                );
             if (success) {
               return null;
             }
@@ -287,6 +358,76 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
     return result ?? false;
   }
 
+  Future<bool> _showTableDialog(Transaction order) async {
+    final TextEditingController controller = TextEditingController(
+      text: order.tableNumber?.toString() ?? '',
+    );
+    final bool? result = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: Text(
+            order.tableNumber == null
+                ? AppStrings.addTable
+                : AppStrings.editTable,
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: AppStrings.tableNumberHint,
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: <Widget>[
+            if (order.tableNumber != null)
+              TextButton(
+                onPressed: () async {
+                  final bool success = await ref
+                      .read(ordersNotifierProvider.notifier)
+                      .updateTableNumber(
+                        transactionId: order.id,
+                        tableNumber: null,
+                      );
+                  if (!mounted) {
+                    return;
+                  }
+                  Navigator.of(context).pop(success);
+                },
+                child: const Text(AppStrings.clearTable),
+              ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(AppStrings.cancel),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final String rawValue = controller.text.trim();
+                final int? parsedValue = rawValue.isEmpty
+                    ? null
+                    : int.tryParse(rawValue);
+                final bool success = await ref
+                    .read(ordersNotifierProvider.notifier)
+                    .updateTableNumber(
+                      transactionId: order.id,
+                      tableNumber: parsedValue,
+                    );
+                if (!mounted) {
+                  return;
+                }
+                Navigator.of(context).pop(success);
+              },
+              child: const Text(AppStrings.saveSettings),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result ?? false;
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(
       context,
@@ -296,128 +437,120 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final OrdersState ordersState = ref.watch(ordersNotifierProvider);
+    final authState = ref.watch(authNotifierProvider);
+    final shiftState = ref.watch(shiftNotifierProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text(AppStrings.openOrdersTitle),
-        actions: <Widget>[
-          IconButton(
-            onPressed: ordersState.isRefreshing
-                ? null
-                : () => ref
-                      .read(ordersNotifierProvider.notifier)
-                      .refreshOpenOrders(),
-            icon: const Icon(Icons.refresh),
-          ),
-          TextButton(
-            onPressed: () => context.go('/pos'),
-            child: const Text(
-              AppStrings.navPos,
-              style: TextStyle(fontSize: AppSizes.fontSm),
-            ),
-          ),
-        ],
+      appBar: SectionAppBar(
+        title: AppStrings.openOrdersTitle,
+        currentRoute: '/orders',
+        currentUser: authState.currentUser,
+        currentShift: shiftState.currentShift,
+        onLogout: () {
+          ref.read(authNotifierProvider.notifier).logout();
+          context.go('/login');
+        },
       ),
       body: RefreshIndicator(
         onRefresh: () =>
             ref.read(ordersNotifierProvider.notifier).refreshOpenOrders(),
-        child: ordersState.openOrders.isEmpty
-            ? ListView(
-                children: const <Widget>[
-                  SizedBox(height: 160),
-                  Center(
-                    child: Text(
-                      AppStrings.noOpenOrders,
-                      style: TextStyle(
-                        fontSize: AppSizes.fontSm,
-                        color: AppColors.textSecondary,
-                      ),
+        child: ListView(
+          padding: const EdgeInsets.all(AppSizes.spacingMd),
+          children: <Widget>[
+            if (shiftState.backendOpenShift == null || shiftState.paymentsLocked)
+              Container(
+                margin: const EdgeInsets.only(bottom: AppSizes.spacingMd),
+                padding: const EdgeInsets.all(AppSizes.spacingMd),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                ),
+                child: Text(
+                  shiftState.paymentsLocked
+                      ? AppStrings.cashierPreviewLock
+                      : AppStrings.paymentBlockedShiftClosed,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            if (ordersState.openOrderSummaries.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 160),
+                child: Center(
+                  child: Text(
+                    AppStrings.noOpenOrders,
+                    style: TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.textSecondary,
                     ),
                   ),
-                ],
+                ),
               )
-            : ListView.builder(
-                padding: const EdgeInsets.all(AppSizes.spacingMd),
-                itemCount: ordersState.openOrders.length,
-                itemBuilder: (BuildContext context, int index) {
-                  final Transaction order = ordersState.openOrders[index];
-                  final int lineCount =
-                      ordersState.lineCountByOrderId[order.id] ?? 0;
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: AppSizes.spacingSm),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(AppSizes.spacingMd),
-                      title: Text(
-                        AppStrings.orderNumber(order.id),
-                        style: const TextStyle(
+            else
+              ...ordersState.openOrderSummaries.map((OpenOrderSummary summary) {
+                final Transaction order = summary.transaction;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: AppSizes.spacingSm),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(AppSizes.spacingMd),
+                    title: Text(
+                      '#${order.id} · ${DateFormatter.formatTime(order.createdAt)} · ${summary.shortContent}',
+                      style: const TextStyle(
+                        fontSize: AppSizes.fontSm,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: order.tableNumber == null
+                        ? null
+                        : Padding(
+                            padding: const EdgeInsets.only(
+                              top: AppSizes.spacingXs,
+                            ),
+                            child: Text(
+                              '${AppStrings.table}: ${order.tableNumber}',
+                              style: const TextStyle(
+                                fontSize: AppSizes.fontSm,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSizes.spacingSm,
+                        vertical: AppSizes.spacingXs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+                      ),
+                      child: const Text(
+                        AppStrings.statusOpen,
+                        style: TextStyle(
                           fontSize: AppSizes.fontSm,
+                          color: AppColors.primary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: AppSizes.spacingXs),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            if (order.tableNumber != null)
-                              Text(
-                                '${AppStrings.table}: ${order.tableNumber}',
-                                style: const TextStyle(
-                                  fontSize: AppSizes.fontSm,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            Text(
-                              '${AppStrings.time}: ${DateFormatter.formatDefault(order.createdAt)}',
-                              style: const TextStyle(
-                                fontSize: AppSizes.fontSm,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            Text(
-                              '${AppStrings.itemCount}: $lineCount',
-                              style: const TextStyle(
-                                fontSize: AppSizes.fontSm,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            Text(
-                              '${AppStrings.total}: ${CurrencyFormatter.fromMinor(order.totalAmountMinor)}',
-                              style: const TextStyle(
-                                fontSize: AppSizes.fontSm,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSizes.spacingSm,
-                          vertical: AppSizes.spacingXs,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(
-                            AppSizes.radiusSm,
-                          ),
-                        ),
-                        child: const Text(
-                          AppStrings.statusOpen,
-                          style: TextStyle(
-                            fontSize: AppSizes.fontSm,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      onTap: () => _showOrderDetails(order),
                     ),
-                  );
-                },
-              ),
+                    onTap: () => _showOrderDetails(order),
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: ordersState.isRefreshing
+            ? null
+            : () =>
+                  ref.read(ordersNotifierProvider.notifier).refreshOpenOrders(),
+        child: const Icon(Icons.refresh),
       ),
     );
   }
