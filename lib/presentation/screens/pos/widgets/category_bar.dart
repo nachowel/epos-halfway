@@ -29,12 +29,12 @@ class CategoryBar extends StatelessWidget {
     }
 
     if (categories.isEmpty) {
-      return const SizedBox(
+      return SizedBox(
         height: AppSizes.topBarHeight,
         child: Center(
           child: Text(
             AppStrings.noCategories,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: AppSizes.fontSm,
               color: AppColors.textSecondary,
             ),

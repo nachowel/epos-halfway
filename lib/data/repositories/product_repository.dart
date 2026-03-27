@@ -42,6 +42,31 @@ class ProductRepository {
     return rows.map(_mapProduct).toList(growable: false);
   }
 
+  Future<List<Product>> getActiveCatalogProducts({int? categoryId}) async {
+    final JoinedSelectStatement<HasResultSet, dynamic> activeCategoriesQuery =
+        _database.selectOnly(_database.categories)
+          ..addColumns(<Expression<Object>>[_database.categories.id])
+          ..where(_database.categories.isActive.equals(true));
+    final SimpleSelectStatement<db.$ProductsTable, db.Product> query =
+        _database.select(_database.products)
+          ..where(
+            (db.$ProductsTable t) =>
+                t.isActive.equals(true) &
+                t.categoryId.isInQuery(activeCategoriesQuery),
+          )
+          ..orderBy(<OrderingTerm Function(db.$ProductsTable)>[
+            (db.$ProductsTable t) => OrderingTerm.asc(t.sortOrder),
+            (db.$ProductsTable t) => OrderingTerm.asc(t.id),
+          ]);
+
+    if (categoryId != null) {
+      query.where((db.$ProductsTable t) => t.categoryId.equals(categoryId));
+    }
+
+    final List<db.Product> rows = await query.get();
+    return rows.map(_mapProduct).toList(growable: false);
+  }
+
   Future<Product?> getById(int id) async {
     final db.Product? row = await (_database.select(
       _database.products,

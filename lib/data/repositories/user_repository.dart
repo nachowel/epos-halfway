@@ -131,8 +131,8 @@ class UserRepository {
     switch (role) {
       case 'admin':
         return UserRole.admin;
-      case 'cashier':
       case 'staff':
+      case 'cashier':
         return UserRole.cashier;
       default:
         throw DatabaseException('Unknown user role: $role');

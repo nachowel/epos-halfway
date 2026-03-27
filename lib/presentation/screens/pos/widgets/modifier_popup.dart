@@ -9,6 +9,7 @@ import '../../../../core/utils/currency_formatter.dart';
 import '../../../../domain/models/order_modifier.dart';
 import '../../../../domain/models/product_modifier.dart';
 import '../../../providers/cart_models.dart';
+import '../../../providers/pos_interaction_provider.dart';
 
 class ModifierPopup extends ConsumerStatefulWidget {
   const ModifierPopup({
@@ -80,31 +81,34 @@ class _ModifierPopupState extends ConsumerState<ModifierPopup> {
 
   @override
   Widget build(BuildContext context) {
+    final interactionPolicy = ref.watch(posInteractionProvider);
+    final bool isBlocked = !interactionPolicy.canOpenModifierDialog;
+
     return AlertDialog(
       backgroundColor: AppColors.surface,
       title: Text(
         '${AppStrings.modifierDialogTitle}: ${widget.productName}',
         style: const TextStyle(fontSize: AppSizes.fontMd),
       ),
-      content: SizedBox(width: 520, child: _buildContent()),
+      content: SizedBox(width: 520, child: _buildContent(isBlocked)),
       actions: <Widget>[
         SizedBox(
           height: AppSizes.minTouch,
           child: OutlinedButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
+            child: Text(
               AppStrings.cancel,
-              style: TextStyle(fontSize: AppSizes.fontSm),
+              style: const TextStyle(fontSize: AppSizes.fontSm),
             ),
           ),
         ),
         SizedBox(
           height: AppSizes.minTouch,
           child: ElevatedButton(
-            onPressed: _isLoading ? null : _submit,
-            child: const Text(
+            onPressed: _isLoading || isBlocked ? null : _submit,
+            child: Text(
               AppStrings.addToCart,
-              style: TextStyle(fontSize: AppSizes.fontSm),
+              style: const TextStyle(fontSize: AppSizes.fontSm),
             ),
           ),
         ),
@@ -112,7 +116,7 @@ class _ModifierPopupState extends ConsumerState<ModifierPopup> {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(bool isBlocked) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -127,101 +131,120 @@ class _ModifierPopupState extends ConsumerState<ModifierPopup> {
     }
 
     if (_included.isEmpty && _extras.isEmpty) {
-      return const Text(
+      return Text(
         AppStrings.modifierNotFound,
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: AppSizes.fontSm,
           color: AppColors.textSecondary,
         ),
       );
     }
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          if (_included.isNotEmpty) ...<Widget>[
-            const Text(
-              AppStrings.includedModifiers,
-              style: TextStyle(
-                fontSize: AppSizes.fontSm,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: AppSizes.spacingSm),
-            ..._included.map(
-              (ProductModifier modifier) => CheckboxListTile(
-                value: _includedChecked[modifier.id] ?? true,
-                title: Text(
-                  modifier.name,
-                  style: const TextStyle(fontSize: AppSizes.fontSm),
-                ),
-                onChanged: (bool? checked) {
-                  setState(() {
-                    _includedChecked[modifier.id] = checked ?? true;
-                  });
-                },
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-            const SizedBox(height: AppSizes.spacingMd),
-          ],
-          if (_extras.isNotEmpty) ...<Widget>[
-            const Text(
-              AppStrings.extraModifiers,
-              style: TextStyle(
-                fontSize: AppSizes.fontSm,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: AppSizes.spacingSm),
-            ..._extras.map((ProductModifier modifier) {
-              final int count = _extraCounts[modifier.id] ?? 0;
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  modifier.name,
-                  style: const TextStyle(fontSize: AppSizes.fontSm),
-                ),
-                subtitle: Text(
-                  CurrencyFormatter.fromMinor(modifier.extraPriceMinor),
-                  style: const TextStyle(fontSize: AppSizes.fontSm),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    IconButton(
-                      onPressed: count <= 0
-                          ? null
-                          : () {
-                              setState(() {
-                                _extraCounts[modifier.id] = count - 1;
-                              });
-                            },
-                      icon: const Icon(Icons.remove_circle_outline),
+    return IgnorePointer(
+      ignoring: isBlocked,
+      child: Opacity(
+        opacity: isBlocked ? 0.5 : 1,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (isBlocked)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSizes.spacingMd),
+                  child: Text(
+                    ref.watch(posInteractionProvider).lockMessage ??
+                        AppStrings.salesLockedAdminCloseRequired,
+                    style: const TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w600,
                     ),
-                    Text(
-                      '$count',
-                      style: const TextStyle(
-                        fontSize: AppSizes.fontSm,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        setState(() {
-                          _extraCounts[modifier.id] = count + 1;
-                        });
-                      },
-                      icon: const Icon(Icons.add_circle_outline),
-                    ),
-                  ],
+                  ),
                 ),
-              );
-            }),
-          ],
-        ],
+              if (_included.isNotEmpty) ...<Widget>[
+                Text(
+                  AppStrings.includedModifiers,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: AppSizes.spacingSm),
+                ..._included.map(
+                  (ProductModifier modifier) => CheckboxListTile(
+                    value: _includedChecked[modifier.id] ?? true,
+                    title: Text(
+                      modifier.name,
+                      style: const TextStyle(fontSize: AppSizes.fontSm),
+                    ),
+                    onChanged: (bool? checked) {
+                      setState(() {
+                        _includedChecked[modifier.id] = checked ?? true;
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const SizedBox(height: AppSizes.spacingMd),
+              ],
+              if (_extras.isNotEmpty) ...<Widget>[
+                Text(
+                  AppStrings.extraModifiers,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: AppSizes.spacingSm),
+                ..._extras.map((ProductModifier modifier) {
+                  final int count = _extraCounts[modifier.id] ?? 0;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      modifier.name,
+                      style: const TextStyle(fontSize: AppSizes.fontSm),
+                    ),
+                    subtitle: Text(
+                      CurrencyFormatter.fromMinor(modifier.extraPriceMinor),
+                      style: const TextStyle(fontSize: AppSizes.fontSm),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        IconButton(
+                          onPressed: count <= 0
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _extraCounts[modifier.id] = count - 1;
+                                  });
+                                },
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                        Text(
+                          '$count',
+                          style: const TextStyle(
+                            fontSize: AppSizes.fontSm,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _extraCounts[modifier.id] = count + 1;
+                            });
+                          },
+                          icon: const Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

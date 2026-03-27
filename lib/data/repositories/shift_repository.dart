@@ -2,7 +2,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
 import '../../core/errors/exceptions.dart';
+import '../../domain/models/draft_order_policy.dart';
+import '../../domain/models/shift_close_readiness.dart';
 import '../../domain/models/shift.dart';
+import '../../domain/models/transaction.dart';
 import '../database/app_database.dart' as db;
 
 class ShiftRepository {
@@ -57,7 +60,7 @@ class ShiftRepository {
     });
   }
 
-  Future<void> closeShift(int shiftId, int userId) async {
+  Future<void> closeShift(int shiftId, int userId, {DateTime? now}) async {
     await _database.transaction(() async {
       final db.Shift? row = await (_database.select(
         _database.shifts,
@@ -70,9 +73,12 @@ class ShiftRepository {
         throw InvalidStateTransitionException('Shift is not open: $shiftId');
       }
 
-      final int openOrdersCount = await _countOpenOrdersByShift(shiftId);
-      if (openOrdersCount > 0) {
-        throw OpenOrdersExistException(openOrdersCount);
+      final ShiftCloseReadiness readiness = await getShiftCloseReadiness(
+        shiftId,
+        now: now,
+      );
+      if (!readiness.canFinalClose) {
+        throw ShiftCloseBlockedException(readiness);
       }
 
       final int updatedCount =
@@ -107,14 +113,13 @@ class ShiftRepository {
 
       final int updatedCount =
           await (_database.update(
-                _database.shifts,
-              )..where((db.$ShiftsTable t) => t.id.equals(shiftId)))
-              .write(
-                db.ShiftsCompanion(
-                  cashierPreviewedBy: Value<int?>(previewedBy),
-                  cashierPreviewedAt: Value<DateTime?>(previewedAt),
-                ),
-              );
+            _database.shifts,
+          )..where((db.$ShiftsTable t) => t.id.equals(shiftId))).write(
+            db.ShiftsCompanion(
+              cashierPreviewedBy: Value<int?>(previewedBy),
+              cashierPreviewedAt: Value<DateTime?>(previewedAt),
+            ),
+          );
 
       if (updatedCount == 0) {
         throw DatabaseException('Failed to mark cashier preview: $shiftId');
@@ -138,18 +143,41 @@ class ShiftRepository {
     return rows.map(_mapShift).toList(growable: false);
   }
 
-  Future<int> _countOpenOrdersByShift(int shiftId) async {
-    final Expression<int> openOrderCountExp = _database.transactions.id.count();
-    final TypedResult row =
-        await (_database.selectOnly(_database.transactions)
-              ..addColumns(<Expression<int>>[openOrderCountExp])
-              ..where(
-                _database.transactions.shiftId.equals(shiftId) &
-                    _database.transactions.status.equals('open'),
-              ))
-            .getSingle();
+  Future<ShiftCloseReadiness> getShiftCloseReadiness(
+    int shiftId, {
+    DateTime? now,
+  }) async {
+    final DateTime effectiveNow = now ?? DateTime.now();
+    final List<db.Transaction> rows =
+        await (_database.select(_database.transactions)
+              ..where((db.$TransactionsTable t) {
+                return t.shiftId.equals(shiftId) &
+                    (t.status.equals('draft') | t.status.equals('sent'));
+              }))
+            .get();
 
-    return row.read(openOrderCountExp) ?? 0;
+    int sentOrderCount = 0;
+    int freshDraftCount = 0;
+    int staleDraftCount = 0;
+
+    for (final db.Transaction row in rows) {
+      final Transaction transaction = _mapTransaction(row);
+      if (transaction.status == TransactionStatus.sent) {
+        sentOrderCount += 1;
+        continue;
+      }
+      if (DraftOrderPolicy.isStale(transaction, now: effectiveNow)) {
+        staleDraftCount += 1;
+      } else {
+        freshDraftCount += 1;
+      }
+    }
+
+    return ShiftCloseReadiness(
+      sentOrderCount: sentOrderCount,
+      freshDraftCount: freshDraftCount,
+      staleDraftCount: staleDraftCount,
+    );
   }
 
   Future<db.Shift> _findShiftByIdOrThrow(int id) async {
@@ -175,6 +203,28 @@ class ShiftRepository {
     );
   }
 
+  Transaction _mapTransaction(db.Transaction row) {
+    return Transaction(
+      id: row.id,
+      uuid: row.uuid,
+      shiftId: row.shiftId,
+      userId: row.userId,
+      tableNumber: row.tableNumber,
+      status: _transactionStatusFromDb(row.status),
+      subtotalMinor: row.subtotalMinor,
+      modifierTotalMinor: row.modifierTotalMinor,
+      totalAmountMinor: row.totalAmountMinor,
+      createdAt: row.createdAt,
+      paidAt: row.paidAt,
+      updatedAt: row.updatedAt,
+      cancelledAt: row.cancelledAt,
+      cancelledBy: row.cancelledBy,
+      idempotencyKey: row.idempotencyKey,
+      kitchenPrinted: row.kitchenPrinted,
+      receiptPrinted: row.receiptPrinted,
+    );
+  }
+
   ShiftStatus _statusFromDb(String value) {
     switch (value) {
       case 'open':
@@ -192,6 +242,27 @@ class ShiftRepository {
         return 'open';
       case ShiftStatus.closed:
         return 'closed';
+      case ShiftStatus.locked:
+        throw ArgumentError.value(
+          value,
+          'value',
+          'Locked is an effective UI status and cannot be persisted.',
+        );
+    }
+  }
+
+  TransactionStatus _transactionStatusFromDb(String value) {
+    switch (value) {
+      case 'draft':
+        return TransactionStatus.draft;
+      case 'sent':
+        return TransactionStatus.sent;
+      case 'paid':
+        return TransactionStatus.paid;
+      case 'cancelled':
+        return TransactionStatus.cancelled;
+      default:
+        throw DatabaseException('Unknown transaction status: $value');
     }
   }
 

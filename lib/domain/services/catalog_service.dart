@@ -23,10 +23,7 @@ class CatalogService {
   }
 
   Future<List<Product>> getProducts({int? categoryId}) {
-    if (categoryId == null) {
-      return _productRepository.getAll(activeOnly: true);
-    }
-    return _productRepository.getByCategory(categoryId, activeOnly: true);
+    return _productRepository.getActiveCatalogProducts(categoryId: categoryId);
   }
 
   Future<List<ProductModifier>> getProductModifiers(int productId) {

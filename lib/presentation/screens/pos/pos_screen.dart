@@ -5,16 +5,20 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
+import '../../../domain/models/payment.dart';
 import '../../../domain/models/product.dart';
+import '../../../domain/models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_models.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/orders_provider.dart';
+import '../../providers/pos_interaction_provider.dart';
 import '../../providers/products_provider.dart';
 import '../../providers/shift_provider.dart';
 import '../../widgets/section_app_bar.dart';
 import 'widgets/cart_panel.dart';
 import 'widgets/category_bar.dart';
+import 'widgets/interaction_lock_shell.dart';
 import 'widgets/modifier_popup.dart';
 import 'widgets/payment_dialog.dart';
 import 'widgets/product_grid.dart';
@@ -38,8 +42,18 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   Future<void> _onTapProduct(Product product) async {
+    final PosInteractionPolicy interactionPolicy = ref.read(
+      posInteractionProvider,
+    );
+    final PosInteractionController interactionController = ref.read(
+      posInteractionControllerProvider,
+    );
+    if (!interactionPolicy.canOpenModifierDialog) {
+      return;
+    }
+
     if (!product.hasModifiers) {
-      ref.read(cartNotifierProvider.notifier).addProduct(product);
+      interactionController.addProduct(product);
       return;
     }
 
@@ -57,41 +71,45 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       return;
     }
 
-    ref
-        .read(cartNotifierProvider.notifier)
-        .addProduct(product, modifiers: selectedModifiers);
+    interactionController.addProduct(product, modifiers: selectedModifiers);
   }
 
   Future<void> _checkout({required bool payNow}) async {
+    final PosInteractionPolicy interactionPolicy = ref.read(
+      posInteractionProvider,
+    );
+    final PosInteractionController interactionController = ref.read(
+      posInteractionControllerProvider,
+    );
     final authState = ref.read(authNotifierProvider);
-    final shiftState = ref.read(shiftNotifierProvider);
     final user = authState.currentUser;
     if (user == null) {
       _showMessage(AppStrings.loginFailed);
       return;
     }
-    if (shiftState.backendOpenShift == null || shiftState.salesLocked) {
-      _showMessage(shiftState.lockReason ?? AppStrings.shiftNotActiveError);
-      return;
-    }
-
-    final createdTransaction = await ref
-        .read(ordersNotifierProvider.notifier)
-        .createOrderFromCart(currentUser: user);
-
-    if (!mounted) {
-      return;
-    }
-
-    if (createdTransaction == null) {
-      final String fallback = AppStrings.loginFailed;
-      final String message =
-          ref.read(ordersNotifierProvider).errorMessage ?? fallback;
-      _showMessage(message);
+    if (interactionPolicy.isInteractionLocked) {
+      _showMessage(
+        interactionController.currentBlockMessage ?? AppStrings.accessDenied,
+      );
       return;
     }
 
     if (!payNow) {
+      final createdTransaction = await interactionController
+          .createOrderFromCart(currentUser: user);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (createdTransaction == null) {
+        final String fallback = AppStrings.loginFailed;
+        final String message =
+            ref.read(ordersNotifierProvider).errorMessage ?? fallback;
+        _showMessage(message);
+        return;
+      }
+
       _showMessage(
         '${AppStrings.orderCreated} ${AppStrings.orderNumber(createdTransaction.id)}',
       );
@@ -99,8 +117,17 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     }
 
     final bool paid = await _showPaymentDialog(
-      transactionId: createdTransaction.id,
-      totalAmountMinor: createdTransaction.totalAmountMinor,
+      totalAmountMinor: ref.read(cartNotifierProvider).totalMinor,
+      onSubmit: (paymentMethod) async {
+        final Transaction? transaction = await interactionController
+            .payNowFromCart(currentUser: user, method: paymentMethod);
+        if (transaction != null) {
+          return null;
+        }
+        return interactionController.currentBlockMessage ??
+            ref.read(ordersNotifierProvider).errorMessage ??
+            AppStrings.paymentFailedOrderOpen;
+      },
     );
     if (!mounted) {
       return;
@@ -111,8 +138,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   Future<bool> _showPaymentDialog({
-    required int transactionId,
     required int totalAmountMinor,
+    required Future<String?> Function(PaymentMethod paymentMethod) onSubmit,
   }) async {
     final bool? result = await showDialog<bool>(
       context: context,
@@ -120,24 +147,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       builder: (_) {
         return PaymentDialog(
           totalAmountMinor: totalAmountMinor,
-          onSubmit: (paymentMethod) async {
-            final currentUser = ref.read(authNotifierProvider).currentUser;
-            if (currentUser == null) {
-              return AppStrings.accessDenied;
-            }
-            final bool success = await ref
-                .read(ordersNotifierProvider.notifier)
-                .payOrder(
-                  transactionId: transactionId,
-                  method: paymentMethod,
-                  currentUser: currentUser,
-                );
-            if (success) {
-              return null;
-            }
-            return ref.read(ordersNotifierProvider).errorMessage ??
-                AppStrings.paymentFailedOrderOpen;
-          },
+          onSubmit: onSubmit,
+          isSubmissionBlocked: !ref.read(posInteractionProvider).canTakePayment,
+          blockedMessage: ref.read(posInteractionProvider).lockMessage,
         );
       },
     );
@@ -156,20 +168,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final authState = ref.watch(authNotifierProvider);
     final productsState = ref.watch(productsNotifierProvider);
     final cartState = ref.watch(cartNotifierProvider);
-    final ordersState = ref.watch(ordersNotifierProvider);
     final shiftState = ref.watch(shiftNotifierProvider);
-
-    final bool hasOpenShift = shiftState.backendOpenShift != null;
-    final bool cartHasItems = !cartState.isEmpty;
-    final bool canCheckout = hasOpenShift &&
-        !shiftState.salesLocked &&
-        cartHasItems &&
-        !ordersState.isBusy;
-    final String? shiftBannerMessage = hasOpenShift
-        ? (shiftState.salesLocked
-              ? (shiftState.lockReason ?? AppStrings.salesLockedForCashier)
-              : null)
-        : AppStrings.shiftNotActiveError;
+    final PosInteractionPolicy interactionPolicy = ref.watch(
+      posInteractionProvider,
+    );
+    final PosInteractionController interactionController = ref.read(
+      posInteractionControllerProvider,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -203,76 +208,64 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               child: Row(
                 children: <Widget>[
                   Expanded(
-                    child: Column(
-                      children: <Widget>[
-                        CategoryBar(
-                          categories: productsState.categories,
-                          selectedCategoryId: productsState.selectedCategoryId,
-                          isLoading: productsState.isLoading,
-                          onSelectCategory: (int? categoryId) {
-                            ref
-                                .read(productsNotifierProvider.notifier)
-                                .selectCategory(categoryId);
-                          },
-                        ),
-                        if (shiftBannerMessage != null)
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: AppSizes.spacingMd,
-                            ),
-                            padding: const EdgeInsets.all(AppSizes.spacingMd),
-                            decoration: BoxDecoration(
-                              color: AppColors.warning.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(
-                                AppSizes.radiusMd,
-                              ),
-                            ),
-                            child: Text(
-                              shiftBannerMessage,
-                              style: const TextStyle(
-                                fontSize: AppSizes.fontSm,
-                                color: AppColors.warning,
-                              ),
-                            ),
-                          ),
-                        Expanded(
-                          child: ProductGrid(
-                            products: productsState.products,
+                    child: InteractionLockShell(
+                      isLocked: interactionPolicy.isInteractionLocked,
+                      message:
+                          interactionPolicy.lockMessage ??
+                          AppStrings.accessDenied,
+                      child: Column(
+                        children: <Widget>[
+                          CategoryBar(
+                            categories: productsState.categories,
+                            selectedCategoryId:
+                                productsState.selectedCategoryId,
                             isLoading: productsState.isLoading,
-                            onTapProduct: _onTapProduct,
+                            onSelectCategory: (int? categoryId) {
+                              ref
+                                  .read(productsNotifierProvider.notifier)
+                                  .selectCategory(categoryId);
+                            },
                           ),
-                        ),
-                      ],
+                          Expanded(
+                            child: ProductGrid(
+                              products: productsState.products,
+                              isLoading: productsState.isLoading,
+                              onTapProduct:
+                                  interactionPolicy.isInteractionLocked
+                                  ? null
+                                  : _onTapProduct,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  CartPanel(
-                    cartState: cartState,
-                    canCreateOrder: canCheckout,
-                    canPayNow: canCheckout,
-                    isCheckoutLoading:
-                        ordersState.isCheckoutLoading ||
-                        ordersState.isPaymentLoading,
-                    onIncreaseQuantity: (String localId) {
-                      ref
-                          .read(cartNotifierProvider.notifier)
-                          .increaseQuantity(localId);
-                    },
-                    onDecreaseQuantity: (String localId) {
-                      ref
-                          .read(cartNotifierProvider.notifier)
-                          .decreaseQuantity(localId);
-                    },
-                    onRemoveLine: (String localId) {
-                      ref
-                          .read(cartNotifierProvider.notifier)
-                          .removeItem(localId);
-                    },
-                    onCreateOrder: () => _checkout(payNow: false),
-                    onPayNow: () => _checkout(payNow: true),
-                    onClearCart: () {
-                      ref.read(cartNotifierProvider.notifier).clearCart();
-                    },
+                  InteractionLockShell(
+                    isLocked: interactionPolicy.isInteractionLocked,
+                    message:
+                        interactionPolicy.lockMessage ??
+                        AppStrings.accessDenied,
+                    child: CartPanel(
+                      cartState: cartState,
+                      canCreateOrder: interactionPolicy.canCreateOrder,
+                      canPayNow: interactionPolicy.canTakePayment,
+                      canClearCart: interactionPolicy.canClearCart,
+                      isCheckoutLoading: interactionPolicy.isCheckoutBusy,
+                      onIncreaseQuantity: (String localId) {
+                        interactionController.increaseQuantity(localId);
+                      },
+                      onDecreaseQuantity: (String localId) {
+                        interactionController.decreaseQuantity(localId);
+                      },
+                      onRemoveLine: (String localId) {
+                        interactionController.removeItem(localId);
+                      },
+                      onCreateOrder: () => _checkout(payNow: false),
+                      onPayNow: () => _checkout(payNow: true),
+                      onClearCart: () {
+                        interactionController.clearCart();
+                      },
+                    ),
                   ),
                 ],
               ),

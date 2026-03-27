@@ -12,6 +12,7 @@ import '../../../domain/models/user.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/reports_provider.dart';
 import '../../providers/shift_provider.dart';
+import '../../widgets/counted_cash_dialog.dart';
 import '../../widgets/section_app_bar.dart';
 
 class ZReportScreen extends ConsumerStatefulWidget {
@@ -52,6 +53,28 @@ class _ZReportScreenState extends ConsumerState<ZReportScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _runAdminFinalClose(int expectedCashMinor) async {
+    final int? countedCashMinor = await showDialog<int>(
+      context: context,
+      builder: (_) => CountedCashDialog(expectedCashMinor: expectedCashMinor),
+    );
+    if (countedCashMinor == null || !mounted) {
+      return;
+    }
+    final bool success = await ref
+        .read(reportsNotifierProvider.notifier)
+        .runAdminFinalClose(countedCashMinor: countedCashMinor);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      success
+          ? AppStrings.finalReportTaken
+          : (ref.read(reportsNotifierProvider).errorMessage ??
+                AppStrings.accessDenied),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
@@ -84,6 +107,8 @@ class _ZReportScreenState extends ConsumerState<ZReportScreen> {
               currentUser: currentUser,
               backendOpenShift: shiftState.backendOpenShift,
               isActionLoading: reportsState.isActionLoading,
+              isPrintLoading: reportsState.isPrintLoading,
+              canPrint: reportsState.currentReport != null,
               onCashierPreview: () async {
                 final bool success = await ref
                     .read(reportsNotifierProvider.notifier)
@@ -99,17 +124,25 @@ class _ZReportScreenState extends ConsumerState<ZReportScreen> {
                 );
               },
               onAdminFinalClose: () async {
+                final ShiftReport? report = reportsState.currentReport;
+                if (report == null) {
+                  _showMessage(AppStrings.noReportData);
+                  return;
+                }
+                await _runAdminFinalClose(report.cashTotalMinor);
+              },
+              onPrint: () async {
                 final bool success = await ref
                     .read(reportsNotifierProvider.notifier)
-                    .runAdminFinalClose();
+                    .printCurrentReport();
                 if (!mounted) {
                   return;
                 }
                 _showMessage(
                   success
-                      ? AppStrings.finalReportTaken
+                      ? AppStrings.zReportPrinted
                       : (ref.read(reportsNotifierProvider).errorMessage ??
-                            AppStrings.accessDenied),
+                            AppStrings.printFailed),
                 );
               },
             ),
@@ -143,11 +176,11 @@ class _ZReportScreenState extends ConsumerState<ZReportScreen> {
                 ),
               )
             else if (reportsState.currentReport == null)
-              const _InfoCard(
+              _InfoCard(
                 color: AppColors.surfaceMuted,
                 child: Text(
                   AppStrings.noReportData,
-                  style: TextStyle(fontSize: AppSizes.fontSm),
+                  style: const TextStyle(fontSize: AppSizes.fontSm),
                 ),
               )
             else
@@ -184,15 +217,21 @@ class _ReportActionsCard extends StatelessWidget {
     required this.currentUser,
     required this.backendOpenShift,
     required this.isActionLoading,
+    required this.isPrintLoading,
+    required this.canPrint,
     required this.onCashierPreview,
     required this.onAdminFinalClose,
+    required this.onPrint,
   });
 
   final User? currentUser;
   final Shift? backendOpenShift;
   final bool isActionLoading;
+  final bool isPrintLoading;
+  final bool canPrint;
   final Future<void> Function() onCashierPreview;
   final Future<void> Function() onAdminFinalClose;
+  final Future<void> Function() onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -214,15 +253,30 @@ class _ReportActionsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSizes.spacingSm),
-          const Text(
+          Text(
             AppStrings.finalCloseHint,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: AppSizes.fontSm,
               color: AppColors.textSecondary,
             ),
           ),
           if (backendOpenShift != null) ...<Widget>[
             const SizedBox(height: AppSizes.spacingMd),
+            OutlinedButton(
+              onPressed: isPrintLoading || !canPrint
+                  ? null
+                  : () async {
+                      await onPrint();
+                    },
+              child: isPrintLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(AppStrings.printZReportAction),
+            ),
+            const SizedBox(height: AppSizes.spacingSm),
             if (isCashier)
               ElevatedButton(
                 onPressed: isActionLoading
@@ -236,7 +290,7 @@ class _ReportActionsCard extends StatelessWidget {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text(AppStrings.maskedZReportAction),
+                    : Text(AppStrings.maskedZReportAction),
               ),
             if (isAdmin)
               ElevatedButton(
@@ -251,7 +305,7 @@ class _ReportActionsCard extends StatelessWidget {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text(AppStrings.finalZReportAction),
+                    : Text(AppStrings.finalZReportAction),
               ),
           ],
         ],
@@ -284,19 +338,21 @@ class _ShiftSelector extends StatelessWidget {
       color: AppColors.surface,
       child: DropdownButtonFormField<int>(
         value: selectedShiftId ?? shifts.first.id,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: AppStrings.selectShift,
           border: OutlineInputBorder(),
         ),
         items: shifts
             .map((Shift shift) {
-              final bool isOpen = shift.status == ShiftStatus.open;
+              final String statusLabel = switch (shift.status) {
+                ShiftStatus.open => AppStrings.shiftOpen,
+                ShiftStatus.closed => AppStrings.shiftClosed,
+                ShiftStatus.locked => AppStrings.statusLocked,
+              };
               return DropdownMenuItem<int>(
                 value: shift.id,
                 child: Text(
-                  isOpen
-                      ? '${AppStrings.openShiftLabel(shift.id)} (${AppStrings.shiftOpen})'
-                      : '${AppStrings.openShiftLabel(shift.id)} (${AppStrings.shiftClosed})',
+                  '${AppStrings.openShiftLabel(shift.id)} ($statusLabel)',
                 ),
               );
             })
@@ -325,10 +381,22 @@ class _ReportBody extends StatelessWidget {
           runSpacing: AppSizes.spacingMd,
           children: <Widget>[
             _SummaryCard(
-              title: AppStrings.paidOrders,
+              title: AppStrings.grossSales,
               count: report.paidCount,
               totalLabel: CurrencyFormatter.fromMinor(report.paidTotalMinor),
               color: AppColors.success,
+            ),
+            _SummaryCard(
+              title: AppStrings.refundTotal,
+              count: report.refundCount,
+              totalLabel: CurrencyFormatter.fromMinor(report.refundTotalMinor),
+              color: AppColors.warning,
+            ),
+            _SummaryCard(
+              title: AppStrings.netSales,
+              count: report.paidCount,
+              totalLabel: CurrencyFormatter.fromMinor(report.netSalesMinor),
+              color: AppColors.primary,
             ),
             _SummaryCard(
               title: AppStrings.openOrdersTitle,
@@ -350,21 +418,31 @@ class _ReportBody extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Text(
+              Text(
                 AppStrings.paymentBreakdown,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: AppSizes.fontMd,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: AppSizes.spacingMd),
               _BreakdownRow(
-                label: AppStrings.cash,
+                label: AppStrings.grossCash,
+                count: report.cashCount,
+                totalMinor: report.cashGrossTotalMinor,
+              ),
+              _BreakdownRow(
+                label: AppStrings.netCash,
                 count: report.cashCount,
                 totalMinor: report.cashTotalMinor,
               ),
               _BreakdownRow(
-                label: AppStrings.card,
+                label: AppStrings.grossCard,
+                count: report.cardCount,
+                totalMinor: report.cardGrossTotalMinor,
+              ),
+              _BreakdownRow(
+                label: AppStrings.netCard,
                 count: report.cardCount,
                 totalMinor: report.cardTotalMinor,
               ),
@@ -372,7 +450,7 @@ class _ReportBody extends StatelessWidget {
               _BreakdownRow(
                 label: AppStrings.totalOrders,
                 count: report.paidCount,
-                totalMinor: report.paidTotalMinor,
+                totalMinor: report.netSalesMinor,
                 isEmphasis: true,
               ),
             ],
@@ -464,7 +542,7 @@ class _BreakdownRow extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Expanded(child: Text(label, style: style)),
-          Text('$count sipariş', style: style),
+          Text(AppStrings.orderCountLabel(count), style: style),
           const SizedBox(width: AppSizes.spacingMd),
           Text(CurrencyFormatter.fromMinor(totalMinor), style: style),
         ],

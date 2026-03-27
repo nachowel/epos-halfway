@@ -13,11 +13,15 @@ class PaymentDialog extends StatefulWidget {
   const PaymentDialog({
     required this.totalAmountMinor,
     required this.onSubmit,
+    this.isSubmissionBlocked = false,
+    this.blockedMessage,
     super.key,
   });
 
   final int totalAmountMinor;
   final PaymentSubmitCallback onSubmit;
+  final bool isSubmissionBlocked;
+  final String? blockedMessage;
 
   @override
   State<PaymentDialog> createState() => _PaymentDialogState();
@@ -45,19 +49,21 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isInteractionBlocked = widget.isSubmissionBlocked;
     final int receivedMinor = _paymentMethod == PaymentMethod.card
         ? widget.totalAmountMinor
         : _parseReceivedMinor(_receivedController.text);
     final int changeMinor = receivedMinor - widget.totalAmountMinor;
     final bool isPayEnabled =
         !_isSubmitting &&
+        !isInteractionBlocked &&
         (_paymentMethod == PaymentMethod.card || changeMinor >= 0);
 
     return AlertDialog(
       backgroundColor: AppColors.surface,
-      title: const Text(
+      title: Text(
         AppStrings.paymentTitle,
-        style: TextStyle(fontSize: AppSizes.fontMd),
+        style: const TextStyle(fontSize: AppSizes.fontMd),
       ),
       content: SizedBox(
         width: 420,
@@ -81,7 +87,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   const TextStyle(fontSize: AppSizes.fontSm),
                 ),
               ),
-              segments: const <ButtonSegment<PaymentMethod>>[
+              segments: <ButtonSegment<PaymentMethod>>[
                 ButtonSegment(
                   value: PaymentMethod.cash,
                   label: Text(AppStrings.cash),
@@ -109,7 +115,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
                   decimal: true,
                 ),
                 style: const TextStyle(fontSize: AppSizes.fontSm),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: AppStrings.receivedAmount,
                   border: OutlineInputBorder(),
                 ),
@@ -135,6 +141,18 @@ class _PaymentDialogState extends State<PaymentDialog> {
                 ),
               ),
             ],
+            if (isInteractionBlocked) ...<Widget>[
+              const SizedBox(height: AppSizes.spacingSm),
+              Text(
+                widget.blockedMessage ??
+                    AppStrings.salesLockedAdminCloseRequired,
+                style: const TextStyle(
+                  fontSize: AppSizes.fontSm,
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -143,9 +161,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
           height: AppSizes.minTouch,
           child: OutlinedButton(
             onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
-            child: const Text(
+            child: Text(
               AppStrings.cancel,
-              style: TextStyle(fontSize: AppSizes.fontSm),
+              style: const TextStyle(fontSize: AppSizes.fontSm),
             ),
           ),
         ),
@@ -155,9 +173,9 @@ class _PaymentDialogState extends State<PaymentDialog> {
             onPressed: isPayEnabled ? _submit : null,
             child: _isSubmitting
                 ? const CircularProgressIndicator(color: AppColors.surface)
-                : const Text(
+                : Text(
                     AppStrings.pay,
-                    style: TextStyle(fontSize: AppSizes.fontSm),
+                    style: const TextStyle(fontSize: AppSizes.fontSm),
                   ),
           ),
         ),

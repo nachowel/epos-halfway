@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/errors/error_mapper.dart';
 import '../../core/providers/app_providers.dart';
+import '../../data/repositories/auth_lockout_store.dart';
 import '../../domain/models/user.dart';
 
 class AuthState {
@@ -55,9 +56,19 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier(this._ref) : super(const AuthState.initial());
+  AuthNotifier(this._ref, this._lockoutStore)
+    : super(
+        AuthState(
+          currentUser: null,
+          isLoading: false,
+          errorMessage: null,
+          failedAttempts: _lockoutStore.getFailedAttempts(),
+          lockedUntil: _lockoutStore.getLockedUntil(),
+        ),
+      );
 
   final Ref _ref;
+  final AuthLockoutStore _lockoutStore;
   static const int _maxFailedAttempts = 3;
   static const Duration _lockDuration = Duration(seconds: 30);
 
@@ -77,17 +88,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (user == null) {
         final int nextFailedAttempts = state.failedAttempts + 1;
         final bool shouldLock = nextFailedAttempts >= _maxFailedAttempts;
+        final DateTime? lockUntil = shouldLock
+            ? DateTime.now().add(_lockDuration)
+            : null;
+        final int newCount = shouldLock ? 0 : nextFailedAttempts;
+
+        await _lockoutStore.setFailedAttempts(newCount);
+        await _lockoutStore.setLockedUntil(lockUntil);
+
         state = state.copyWith(
           isLoading: false,
           errorMessage: shouldLock
               ? AppStrings.authLocked
               : AppStrings.invalidPinOrInactiveUser,
           currentUser: null,
-          failedAttempts: shouldLock ? 0 : nextFailedAttempts,
-          lockedUntil: shouldLock ? DateTime.now().add(_lockDuration) : null,
+          failedAttempts: newCount,
+          lockedUntil: lockUntil,
         );
         return null;
       }
+
+      await _lockoutStore.reset();
       state = state.copyWith(
         isLoading: false,
         errorMessage: null,
@@ -96,10 +117,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         lockedUntil: null,
       );
       return user;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'auth_login_failed',
+          stackTrace: stackTrace,
+        ),
         currentUser: null,
       );
       return null;
@@ -116,22 +142,34 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         errorMessage: user == null ? 'User not found.' : null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'auth_load_user_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
 
   void logout() {
-    state = const AuthState.initial();
+    state = AuthState(
+      currentUser: null,
+      isLoading: false,
+      errorMessage: null,
+      failedAttempts: _lockoutStore.getFailedAttempts(),
+      lockedUntil: _lockoutStore.getLockedUntil(),
+    );
   }
 
   void _pruneExpiredLock() {
     if (state.lockedUntil == null || state.isLocked) {
       return;
     }
+    _lockoutStore.reset();
     state = state.copyWith(
       failedAttempts: 0,
       lockedUntil: null,
@@ -142,7 +180,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
 final StateNotifierProvider<AuthNotifier, AuthState> authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AuthState>(
-      (Ref ref) => AuthNotifier(ref),
+      (Ref ref) => AuthNotifier(ref, ref.watch(authLockoutStoreProvider)),
     );
 
 const Object _unset = Object();

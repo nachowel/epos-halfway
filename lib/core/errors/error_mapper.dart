@@ -1,3 +1,7 @@
+import '../logging/app_logger.dart';
+import '../constants/app_strings.dart';
+import '../../domain/models/shift_close_readiness.dart';
+import '../../domain/models/print_job.dart';
 import 'exceptions.dart';
 
 class ErrorMapper {
@@ -5,46 +9,97 @@ class ErrorMapper {
 
   static String toUserMessage(Object error) {
     if (error is ShiftNotActiveException) {
-      return 'Aktif shift yok. İlk giriş yapan kullanıcı yeni shift başlatır.';
+      return AppStrings.shiftNotActiveError;
     }
     if (error is ShiftClosedException) {
-      return 'Shift zaten kapatılmış.';
+      return AppStrings.shiftClosedMessage;
     }
     if (error is ShiftMismatchException) {
-      return 'Sipariş aktif shift\'e ait değil. Ödeme alınamaz.';
+      return AppStrings.paymentUnavailable;
+    }
+    if (error is OrderPaymentBlockedException) {
+      switch (error.reason) {
+        case PaymentBlockReason.alreadyPaid:
+          return AppStrings.paymentAlreadyCompleted;
+        case PaymentBlockReason.cancelled:
+          return AppStrings.paymentCancelledOrderBlocked;
+        case PaymentBlockReason.notSent:
+          return AppStrings.paymentNotSentBlocked;
+      }
     }
     if (error is CashierPreviewLockedException) {
-      return 'Cashier gün sonu raporu alınmış. Yeni sipariş ve ödeme tüm cashier\'lar için kapalı. Admin final kapanış yapmalı.';
+      return AppStrings.salesLockedAdminCloseRequired;
     }
     if (error is CashierShiftClosedException) {
-      return 'Cashier tarafı kapanmış durumda. Final kapanış admin tarafından yapılmalı.';
+      return AppStrings.salesLockedAdminCloseRequired;
     }
     if (error is ShiftAlreadyOpenException) {
-      return 'Zaten açık bir shift var.';
+      return AppStrings.shiftOpened;
     }
     if (error is OpenOrdersExistException) {
-      return '${error.count} adet açık sipariş var. Önce kapatın veya iptal edin.';
+      return '${AppStrings.openOrdersBlockTitle}: ${error.count}';
+    }
+    if (error is ShiftCloseBlockedException) {
+      switch (error.readiness.blockingReason) {
+        case ShiftCloseBlockReason.sentOrdersPending:
+          return AppStrings.shiftCloseBlockedSentOrders(
+            error.readiness.sentOrderCount,
+          );
+        case ShiftCloseBlockReason.freshDraftsPending:
+          return AppStrings.shiftCloseBlockedFreshDrafts(
+            error.readiness.freshDraftCount,
+          );
+        case ShiftCloseBlockReason.staleDraftsPendingCleanup:
+          return AppStrings.shiftCloseBlockedStaleDrafts(
+            error.readiness.staleDraftCount,
+          );
+        case null:
+          return AppStrings.operationFailed;
+      }
     }
     if (error is InvalidStateTransitionException) {
-      return 'Bu işlem şu anda yapılamaz.';
+      return AppStrings.operationFailed;
     }
     if (error is DuplicatePaymentException) {
-      return 'Bu siparişe zaten ödeme yapılmış.';
+      return AppStrings.paymentAlreadyCompleted;
+    }
+    if (error is DuplicatePaymentAdjustmentException) {
+      return AppStrings.refundAlreadyProcessed;
+    }
+    if (error is PaymentRefundBlockedException) {
+      switch (error.reason) {
+        case RefundBlockReason.notPaid:
+          return AppStrings.refundBlockedNotPaid;
+        case RefundBlockReason.missingPayment:
+          return AppStrings.refundBlockedPaymentMissing;
+        case RefundBlockReason.cancelled:
+          return AppStrings.refundBlockedCancelled;
+        case RefundBlockReason.alreadyAdjusted:
+          return AppStrings.refundAlreadyProcessed;
+      }
     }
     if (error is PaymentAmountMismatchException) {
-      return 'Ödeme tutarı eşleşmiyor.';
+      return AppStrings.paymentFailedOrderOpen;
     }
     if (error is UnauthorisedException) {
-      return 'Bu işlem için yetkiniz yok.';
+      return AppStrings.accessDenied;
     }
     if (error is EmptyCartException) {
-      return 'Sepet boş. Ürün ekleyin.';
+      return AppStrings.cartEmpty;
     }
     if (error is CheckoutFailedException) {
-      return 'Sipariş oluşturulamadı. Tekrar deneyin.';
+      return AppStrings.operationFailed;
+    }
+    if (error is PrintJobInProgressException) {
+      return error.target == PrintJobTarget.kitchen
+          ? AppStrings.kitchenPrintInProgress
+          : AppStrings.receiptPrintInProgress;
+    }
+    if (error is PrinterException) {
+      return error.operatorMessage ?? AppStrings.printRetryRecommended;
     }
     if (error is NotFoundException) {
-      return 'Kayıt bulunamadı.';
+      return AppStrings.notFound;
     }
     if (error is ValidationException) {
       return error.message;
@@ -52,6 +107,38 @@ class ErrorMapper {
     if (error is AppException) {
       return error.message;
     }
-    return 'Beklenmeyen bir hata oluştu. Tekrar deneyin.';
+    return AppStrings.errorGeneric;
+  }
+
+  static String toUserMessageAndLog(
+    Object error, {
+    required AppLogger logger,
+    required String eventType,
+    String? entityId,
+    Map<String, Object?> metadata = const <String, Object?>{},
+    StackTrace? stackTrace,
+  }) {
+    final String message = toUserMessage(error);
+    final bool expected = error is AppException;
+    if (expected) {
+      logger.warn(
+        eventType: eventType,
+        message: error.toString(),
+        entityId: entityId,
+        metadata: metadata,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } else {
+      logger.error(
+        eventType: eventType,
+        message: error.toString(),
+        entityId: entityId,
+        metadata: metadata,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    return message;
   }
 }

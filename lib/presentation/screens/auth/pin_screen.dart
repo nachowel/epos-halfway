@@ -68,9 +68,9 @@ class _PinScreenState extends ConsumerState<PinScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Text(
+                  Text(
                     AppStrings.loginTitle,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: AppSizes.fontLg,
                       fontWeight: FontWeight.w700,
                     ),
@@ -78,7 +78,7 @@ class _PinScreenState extends ConsumerState<PinScreen> {
                   const SizedBox(height: AppSizes.spacingMd),
                   TextField(
                     controller: _pinController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: AppStrings.pinLabel,
                       border: OutlineInputBorder(),
                     ),

@@ -3,9 +3,13 @@ import 'package:epos_app/data/repositories/payment_repository.dart';
 import 'package:epos_app/data/repositories/settings_repository.dart';
 import 'package:epos_app/data/repositories/shift_repository.dart';
 import 'package:epos_app/data/repositories/transaction_repository.dart';
+import 'package:epos_app/data/repositories/transaction_state_repository.dart';
+import 'package:epos_app/domain/models/interaction_block_reason.dart';
 import 'package:epos_app/domain/models/payment.dart';
 import 'package:epos_app/domain/models/shift_report.dart';
+import 'package:epos_app/domain/models/shift.dart';
 import 'package:epos_app/domain/models/user.dart';
+import 'package:epos_app/domain/services/order_service.dart';
 import 'package:epos_app/domain/services/printer_service.dart';
 import 'package:epos_app/domain/services/report_service.dart';
 import 'package:epos_app/domain/services/report_visibility_service.dart';
@@ -47,14 +51,26 @@ void main() {
         uuid: 'tx-shift-1',
         shiftId: shift1Id,
         userId: userId,
-        status: 'open',
+        status: 'sent',
         totalAmountMinor: 500,
       );
 
       // Close shift 1 manually — cancel the open order first
-      await TransactionRepository(db).markTransactionCancelled(
+      await OrderService(
+        shiftSessionService: ShiftSessionService(ShiftRepository(db)),
+        transactionRepository: TransactionRepository(db),
+        transactionStateRepository: TransactionStateRepository(db),
+      ).cancelOrder(
         transactionId: txId,
-        cancelledByUserId: userId,
+        currentUser: User(
+          id: userId,
+          name: 'Admin',
+          pin: null,
+          password: null,
+          role: UserRole.admin,
+          isActive: true,
+          createdAt: DateTime.now(),
+        ),
       );
       await ShiftRepository(db).closeShift(shift1Id, userId);
 
@@ -67,7 +83,7 @@ void main() {
         uuid: 'tx-stale',
         shiftId: shift1Id,
         userId: userId,
-        status: 'open',
+        status: 'sent',
         totalAmountMinor: 300,
       );
 
@@ -129,63 +145,66 @@ void main() {
   // SHIFT-LEVEL CASHIER LOCK
   // ────────────────────────────────────────────────
   group('Shift-level cashier lock', () {
-    test('cashier A previews → cashier B is also locked on same shift', () async {
-      final db = createTestDatabase();
-      addTearDown(db.close);
+    test(
+      'cashier A previews → cashier B is also locked on same shift',
+      () async {
+        final db = createTestDatabase();
+        addTearDown(db.close);
 
-      final int cashierAId = await insertUser(
-        db,
-        name: 'Cashier A',
-        role: 'cashier',
-      );
-      final int cashierBId = await insertUser(
-        db,
-        name: 'Cashier B',
-        role: 'cashier',
-      );
-      final int shiftId = await insertShift(db, openedBy: cashierAId);
+        final int cashierAId = await insertUser(
+          db,
+          name: 'Cashier A',
+          role: 'cashier',
+        );
+        final int cashierBId = await insertUser(
+          db,
+          name: 'Cashier B',
+          role: 'cashier',
+        );
+        final int shiftId = await insertShift(db, openedBy: cashierAId);
 
-      final shiftRepo = ShiftRepository(db);
-      final service = ShiftSessionService(shiftRepo);
+        final shiftRepo = ShiftRepository(db);
+        final service = ShiftSessionService(shiftRepo);
 
-      // Cashier A takes preview
-      await shiftRepo.markCashierPreview(
-        shiftId: shiftId,
-        userId: cashierAId,
-      );
+        // Cashier A takes preview
+        await shiftRepo.markCashierPreview(
+          shiftId: shiftId,
+          userId: cashierAId,
+        );
 
-      final cashierB = User(
-        id: cashierBId,
-        name: 'Cashier B',
-        pin: null,
-        password: null,
-        role: UserRole.cashier,
-        isActive: true,
-        createdAt: DateTime.now(),
-      );
+        final cashierB = User(
+          id: cashierBId,
+          name: 'Cashier B',
+          pin: null,
+          password: null,
+          role: UserRole.cashier,
+          isActive: true,
+          createdAt: DateTime.now(),
+        );
 
-      // Cashier B is also locked from order creation
-      expect(
-        () => service.ensureOrderCreationAllowed(cashierB),
-        throwsA(isA<CashierPreviewLockedException>()),
-      );
+        // Cashier B is also locked from order creation
+        expect(
+          () => service.ensureOrderCreationAllowed(cashierB),
+          throwsA(isA<CashierPreviewLockedException>()),
+        );
 
-      // Cashier B is also locked from payment
-      final int txId = await insertTransaction(
-        db,
-        uuid: 'tx-cashierB-locked',
-        shiftId: shiftId,
-        userId: cashierBId,
-        status: 'open',
-        totalAmountMinor: 600,
-      );
-      final tx = await TransactionRepository(db).getById(txId);
+        // Cashier B is also locked from payment
+        final int txId = await insertTransaction(
+          db,
+          uuid: 'tx-cashierB-locked',
+          shiftId: shiftId,
+          userId: cashierBId,
+          status: 'sent',
+          totalAmountMinor: 600,
+        );
+        final tx = await TransactionRepository(db).getById(txId);
 
-      expect(
-        () => service.ensurePaymentAllowed(user: cashierB, transaction: tx!),
-        throwsA(isA<CashierPreviewLockedException>()),
-      );
-    });
+        expect(
+          () => service.ensurePaymentAllowed(user: cashierB, transaction: tx!),
+          throwsA(isA<CashierPreviewLockedException>()),
+        );
+      },
+    );
 
     test('cashier preview lock applies to order creation', () async {
       final db = createTestDatabase();
@@ -240,7 +259,7 @@ void main() {
         uuid: 'tx-preview-payment',
         shiftId: shiftId,
         userId: cashierId,
-        status: 'open',
+        status: 'sent',
         totalAmountMinor: 800,
       );
 
@@ -294,8 +313,11 @@ void main() {
       expect(snapshot.cashierPreviewActive, isTrue);
       expect(snapshot.salesLocked, isTrue);
       expect(snapshot.paymentsLocked, isTrue);
-      expect(snapshot.lockReason, isNotNull);
-      expect(snapshot.visibleShift, isNull);
+      expect(
+        snapshot.lockReason,
+        InteractionBlockReason.adminFinalCloseRequired,
+      );
+      expect(snapshot.visibleShift, isNotNull);
     });
   });
 
@@ -394,7 +416,7 @@ void main() {
         uuid: 'tx-admin-payment',
         shiftId: shiftId,
         userId: cashierId,
-        status: 'open',
+        status: 'sent',
         totalAmountMinor: 900,
       );
 
@@ -451,7 +473,10 @@ void main() {
         createdAt: DateTime.now(),
       );
 
-      final result = await reportService.runAdminFinalClose(user: admin);
+      final result = await reportService.runAdminFinalCloseWithCountedCash(
+        user: admin,
+        countedCashMinor: 0,
+      );
 
       expect(result.finalCloseCompleted, isTrue);
       expect(result.cashierPreviewRecorded, isTrue);
@@ -470,14 +495,43 @@ void main() {
         uuid: 'tx-admin-real',
         shiftId: shiftId,
         userId: adminId,
-        status: 'open',
+        status: 'draft',
         totalAmountMinor: 2000,
       );
-      await PaymentRepository(db).createPayment(
+      final int categoryId = await insertCategory(db, name: 'Report Food');
+      final int productId = await insertProduct(
+        db,
+        categoryId: categoryId,
+        name: 'Stew',
+        priceMinor: 2000,
+      );
+      await TransactionRepository(
+        db,
+      ).addLine(transactionId: txId, productId: productId, quantity: 1);
+      final admin = User(
+        id: adminId,
+        name: 'Admin',
+        pin: null,
+        password: null,
+        role: UserRole.admin,
+        isActive: true,
+        createdAt: DateTime.now(),
+      );
+      await OrderService(
+        shiftSessionService: ShiftSessionService(ShiftRepository(db)),
+        transactionRepository: TransactionRepository(db),
+        transactionStateRepository: TransactionStateRepository(db),
+        paymentRepository: PaymentRepository(db),
+      ).sendOrder(transactionId: txId, currentUser: admin);
+      await OrderService(
+        shiftSessionService: ShiftSessionService(ShiftRepository(db)),
+        transactionRepository: TransactionRepository(db),
+        transactionStateRepository: TransactionStateRepository(db),
+        paymentRepository: PaymentRepository(db),
+      ).markOrderPaid(
         transactionId: txId,
-        uuid: 'pay-admin-real',
         method: PaymentMethod.cash,
-        amountMinor: 2000,
+        currentUser: admin,
       );
 
       final shiftRepo = ShiftRepository(db);
@@ -490,16 +544,6 @@ void main() {
         paymentRepository: PaymentRepository(db),
         settingsRepository: SettingsRepository(db),
         reportVisibilityService: const ReportVisibilityService(),
-      );
-
-      final admin = User(
-        id: adminId,
-        name: 'Admin',
-        pin: null,
-        password: null,
-        role: UserRole.admin,
-        isActive: true,
-        createdAt: DateTime.now(),
       );
 
       final report = await reportService.getVisibleShiftReport(
@@ -515,77 +559,104 @@ void main() {
   // MASKED VS REAL REPORT PIPELINE
   // ────────────────────────────────────────────────
   group('Masked vs real report pipeline', () {
-    test('cashier gets masked amounts, admin gets real amounts for same shift', () async {
-      final db = createTestDatabase();
-      addTearDown(db.close);
+    test(
+      'cashier gets masked amounts, admin gets real amounts for same shift',
+      () async {
+        final db = createTestDatabase();
+        addTearDown(db.close);
 
-      final int cashierId = await insertUser(
-        db,
-        name: 'Cashier',
-        role: 'cashier',
-      );
-      final int adminId = await insertUser(db, name: 'Admin', role: 'admin');
-      final int shiftId = await insertShift(db, openedBy: cashierId);
-      final int txId = await insertTransaction(
-        db,
-        uuid: 'tx-visibility',
-        shiftId: shiftId,
-        userId: cashierId,
-        status: 'open',
-        totalAmountMinor: 1000,
-      );
-      await PaymentRepository(db).createPayment(
-        transactionId: txId,
-        uuid: 'pay-visibility',
-        method: PaymentMethod.cash,
-        amountMinor: 1000,
-      );
+        final int cashierId = await insertUser(
+          db,
+          name: 'Cashier',
+          role: 'cashier',
+        );
+        final int adminId = await insertUser(db, name: 'Admin', role: 'admin');
+        final int shiftId = await insertShift(db, openedBy: cashierId);
+        final int txId = await insertTransaction(
+          db,
+          uuid: 'tx-visibility',
+          shiftId: shiftId,
+          userId: cashierId,
+          status: 'draft',
+          totalAmountMinor: 1000,
+        );
+        final int categoryId = await insertCategory(
+          db,
+          name: 'Visibility Food',
+        );
+        final int productId = await insertProduct(
+          db,
+          categoryId: categoryId,
+          name: 'Cake',
+          priceMinor: 1000,
+        );
+        await TransactionRepository(
+          db,
+        ).addLine(transactionId: txId, productId: productId, quantity: 1);
+        final admin = User(
+          id: adminId,
+          name: 'Admin',
+          pin: null,
+          password: null,
+          role: UserRole.admin,
+          isActive: true,
+          createdAt: DateTime.now(),
+        );
+        await OrderService(
+          shiftSessionService: ShiftSessionService(ShiftRepository(db)),
+          transactionRepository: TransactionRepository(db),
+          transactionStateRepository: TransactionStateRepository(db),
+          paymentRepository: PaymentRepository(db),
+        ).sendOrder(transactionId: txId, currentUser: admin);
+        await OrderService(
+          shiftSessionService: ShiftSessionService(ShiftRepository(db)),
+          transactionRepository: TransactionRepository(db),
+          transactionStateRepository: TransactionStateRepository(db),
+          paymentRepository: PaymentRepository(db),
+        ).markOrderPaid(
+          transactionId: txId,
+          method: PaymentMethod.cash,
+          currentUser: admin,
+        );
 
-      await SettingsRepository(db).updateVisibilityRatio(0.5, userId: adminId);
+        await SettingsRepository(
+          db,
+        ).updateVisibilityRatio(0.5, userId: adminId);
 
-      final shiftRepo = ShiftRepository(db);
-      final reportService = ReportService(
-        shiftRepository: shiftRepo,
-        shiftSessionService: ShiftSessionService(shiftRepo),
-        transactionRepository: TransactionRepository(db),
-        paymentRepository: PaymentRepository(db),
-        settingsRepository: SettingsRepository(db),
-        reportVisibilityService: const ReportVisibilityService(),
-      );
+        final shiftRepo = ShiftRepository(db);
+        final reportService = ReportService(
+          shiftRepository: shiftRepo,
+          shiftSessionService: ShiftSessionService(shiftRepo),
+          transactionRepository: TransactionRepository(db),
+          paymentRepository: PaymentRepository(db),
+          settingsRepository: SettingsRepository(db),
+          reportVisibilityService: const ReportVisibilityService(),
+        );
 
-      final cashier = User(
-        id: cashierId,
-        name: 'Cashier',
-        pin: null,
-        password: null,
-        role: UserRole.cashier,
-        isActive: true,
-        createdAt: DateTime.now(),
-      );
-      final admin = User(
-        id: adminId,
-        name: 'Admin',
-        pin: null,
-        password: null,
-        role: UserRole.admin,
-        isActive: true,
-        createdAt: DateTime.now(),
-      );
+        final cashier = User(
+          id: cashierId,
+          name: 'Cashier',
+          pin: null,
+          password: null,
+          role: UserRole.cashier,
+          isActive: true,
+          createdAt: DateTime.now(),
+        );
+        final maskedReport = await reportService.getVisibleShiftReport(
+          shiftId: shiftId,
+          user: cashier,
+        );
+        final realReport = await reportService.getVisibleShiftReport(
+          shiftId: shiftId,
+          user: admin,
+        );
 
-      final maskedReport = await reportService.getVisibleShiftReport(
-        shiftId: shiftId,
-        user: cashier,
-      );
-      final realReport = await reportService.getVisibleShiftReport(
-        shiftId: shiftId,
-        user: admin,
-      );
+        expect(maskedReport.paidTotalMinor, 500);
+        expect(realReport.paidTotalMinor, 1000);
+      },
+    );
 
-      expect(maskedReport.paidTotalMinor, 500);
-      expect(realReport.paidTotalMinor, 1000);
-    });
-
-    test('printZReport receives pre-masked data and does not apply its own masking', () async {
+    test('printZReport requires configured printer settings', () async {
       final db = createTestDatabase();
       addTearDown(db.close);
 
@@ -604,8 +675,10 @@ void main() {
         cardTotalMinor: 100,
       );
 
-      // printZReport should accept pre-masked data without error
-      await printerService.printZReport(maskedReport);
+      await expectLater(
+        printerService.printZReport(maskedReport),
+        throwsA(isA<PrinterException>()),
+      );
     });
   });
 
@@ -613,38 +686,15 @@ void main() {
   // NO ACTIVE SHIFT SCENARIOS
   // ────────────────────────────────────────────────
   group('No active shift', () {
-    test('snapshot with no shift shows locked state', () async {
+    test('snapshot with no shift shows closed state', () async {
       final db = createTestDatabase();
       addTearDown(db.close);
 
       await insertUser(db, name: 'Cashier', role: 'cashier');
 
       final service = ShiftSessionService(ShiftRepository(db));
-      final snapshot = await service.getSnapshotForUser(User(
-        id: 1,
-        name: 'Cashier',
-        pin: null,
-        password: null,
-        role: UserRole.cashier,
-        isActive: true,
-        createdAt: DateTime.now(),
-      ));
-
-      expect(snapshot.backendOpenShift, isNull);
-      expect(snapshot.salesLocked, isTrue);
-      expect(snapshot.paymentsLocked, isTrue);
-    });
-
-    test('order creation without shift throws ShiftNotActiveException', () async {
-      final db = createTestDatabase();
-      addTearDown(db.close);
-
-      await insertUser(db, name: 'Cashier', role: 'cashier');
-
-      final service = ShiftSessionService(ShiftRepository(db));
-
-      expect(
-        () => service.ensureOrderCreationAllowed(User(
+      final snapshot = await service.getSnapshotForUser(
+        User(
           id: 1,
           name: 'Cashier',
           pin: null,
@@ -652,9 +702,41 @@ void main() {
           role: UserRole.cashier,
           isActive: true,
           createdAt: DateTime.now(),
-        )),
-        throwsA(isA<ShiftNotActiveException>()),
+        ),
       );
+
+      expect(snapshot.backendOpenShift, isNull);
+      expect(snapshot.effectiveShiftStatus, ShiftStatus.closed);
+      expect(snapshot.salesLocked, isFalse);
+      expect(snapshot.paymentsLocked, isFalse);
+      expect(snapshot.lockReason, InteractionBlockReason.noOpenShift);
     });
+
+    test(
+      'order creation without shift throws ShiftNotActiveException',
+      () async {
+        final db = createTestDatabase();
+        addTearDown(db.close);
+
+        await insertUser(db, name: 'Cashier', role: 'cashier');
+
+        final service = ShiftSessionService(ShiftRepository(db));
+
+        expect(
+          () => service.ensureOrderCreationAllowed(
+            User(
+              id: 1,
+              name: 'Cashier',
+              pin: null,
+              password: null,
+              role: UserRole.cashier,
+              isActive: true,
+              createdAt: DateTime.now(),
+            ),
+          ),
+          throwsA(isA<ShiftNotActiveException>()),
+        );
+      },
+    );
   });
 }

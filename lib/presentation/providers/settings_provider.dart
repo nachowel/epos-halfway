@@ -48,16 +48,23 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> load() async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
-      final double ratio = await _ref.read(reportServiceProvider).getVisibilityRatio();
+      final double ratio = await _ref
+          .read(reportServiceProvider)
+          .getVisibilityRatio();
       state = state.copyWith(
         visibilityRatio: ratio,
         isLoading: false,
         errorMessage: null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'settings_load_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
@@ -73,16 +80,23 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 
     state = state.copyWith(isSaving: true, errorMessage: null);
     try {
-      await _ref.read(reportServiceProvider).updateVisibilityRatio(
-        user: currentUser,
-        ratio: state.visibilityRatio,
-      );
+      await _ref
+          .read(reportServiceProvider)
+          .updateVisibilityRatio(
+            user: currentUser,
+            ratio: state.visibilityRatio,
+          );
       state = state.copyWith(isSaving: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isSaving: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'settings_save_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -90,8 +104,9 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 }
 
 final StateNotifierProvider<SettingsNotifier, SettingsState>
-settingsNotifierProvider = StateNotifierProvider<SettingsNotifier, SettingsState>(
-  (Ref ref) => SettingsNotifier(ref),
-);
+settingsNotifierProvider =
+    StateNotifierProvider<SettingsNotifier, SettingsState>(
+      (Ref ref) => SettingsNotifier(ref),
+    );
 
 const Object _unset = Object();

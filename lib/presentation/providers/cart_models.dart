@@ -44,10 +44,12 @@ class CartItem {
   final List<CartModifier> modifiers;
 
   int get subtotalMinor => unitPriceMinor * quantity;
-  int get modifierTotalMinor => modifiers.fold<int>(
-    0,
-    (int sum, CartModifier m) => sum + m.extraPriceMinor,
-  );
+  int get modifierTotalMinor =>
+      modifiers.fold<int>(
+        0,
+        (int sum, CartModifier m) => sum + m.extraPriceMinor,
+      ) *
+      quantity;
   int get totalMinor => subtotalMinor + modifierTotalMinor;
 
   CartItem copyWith({

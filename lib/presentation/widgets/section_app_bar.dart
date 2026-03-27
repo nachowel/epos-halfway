@@ -29,119 +29,187 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final bool isAdmin = currentUser?.role == UserRole.admin;
+    final bool isCompact = MediaQuery.of(context).size.width < 1100;
+    final ({Color color, String label}) shiftIndicator = _resolveShiftIndicator(
+      currentShift,
+    );
 
     return AppBar(
       toolbarHeight: AppSizes.topBarHeight,
       titleSpacing: AppSizes.spacingMd,
       title: Row(
         children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(
-                AppStrings.appName,
-                style: const TextStyle(
-                  fontSize: AppSizes.fontMd,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-              Text(
-                currentUser == null ? title : '$title · ${currentUser!.name}',
-                style: const TextStyle(
-                  fontSize: AppSizes.fontSm,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: AppSizes.spacingMd),
-          InkWell(
-            borderRadius: BorderRadius.circular(AppSizes.radiusSm),
-            onTap: isAdmin ? () => context.go('/shifts') : null,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSizes.spacingSm,
-                vertical: AppSizes.spacingXs,
-              ),
-              decoration: BoxDecoration(
-                color:
-                    (currentShift == null ? AppColors.error : AppColors.success)
-                        .withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(AppSizes.radiusSm),
-              ),
-              child: Row(
-                children: <Widget>[
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: currentShift == null
-                          ? AppColors.error
-                          : AppColors.success,
-                      shape: BoxShape.circle,
-                    ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Text(
+                  AppStrings.appName,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontMd,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
                   ),
-                  const SizedBox(width: AppSizes.spacingSm),
-                  Text(
-                    currentShift == null
-                        ? AppStrings.shiftClosed
-                        : AppStrings.openShiftLabel(currentShift!.id),
-                    style: TextStyle(
-                      fontSize: AppSizes.fontSm,
-                      color: currentShift == null
-                          ? AppColors.error
-                          : AppColors.success,
+                ),
+                Text(
+                  currentUser == null ? title : '$title · ${currentUser!.name}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (!isCompact) ...<Widget>[
+            const SizedBox(width: AppSizes.spacingMd),
+            InkWell(
+              borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+              onTap: () => context.go('/shifts'),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSizes.spacingSm,
+                  vertical: AppSizes.spacingXs,
+                ),
+                decoration: BoxDecoration(
+                  color: shiftIndicator.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: shiftIndicator.color,
+                        shape: BoxShape.circle,
+                      ),
                     ),
+                    const SizedBox(width: AppSizes.spacingSm),
+                    Text(
+                      shiftIndicator.label,
+                      style: TextStyle(
+                        fontSize: AppSizes.fontSm,
+                        color: shiftIndicator.color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: isCompact
+          ? <Widget>[
+              PopupMenuButton<String>(
+                onSelected: (String value) {
+                  switch (value) {
+                    case '/pos':
+                    case '/orders':
+                    case '/reports':
+                    case '/admin':
+                      context.go(value);
+                    case 'logout':
+                      onLogout();
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  PopupMenuItem<String>(
+                    value: '/pos',
+                    child: Text(AppStrings.navPos),
+                  ),
+                  PopupMenuItem<String>(
+                    value: '/orders',
+                    child: Text(AppStrings.navOrders),
+                  ),
+                  PopupMenuItem<String>(
+                    value: '/reports',
+                    child: Text(AppStrings.navReports),
+                  ),
+                  PopupMenuItem<String>(
+                    value: '/shifts',
+                    child: Text(AppStrings.navShifts),
+                  ),
+                  if (isAdmin)
+                    PopupMenuItem<String>(
+                      value: '/admin',
+                      child: Text(AppStrings.navAdmin),
+                    ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Text(AppStrings.navLogout),
                   ),
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
-      actions: <Widget>[
-        _NavButton(
-          label: AppStrings.navPos,
-          isActive: currentRoute == '/pos',
-          onTap: () => context.go('/pos'),
-        ),
-        _NavButton(
-          label: AppStrings.navOrders,
-          isActive: currentRoute == '/orders',
-          onTap: () => context.go('/orders'),
-        ),
-        _NavButton(
-          label: AppStrings.navReports,
-          isActive: currentRoute == '/reports',
-          onTap: () => context.go('/reports'),
-        ),
-        if (isAdmin)
-          _NavButton(
-            label: AppStrings.navShifts,
-            isActive: currentRoute == '/shifts',
-            onTap: () => context.go('/shifts'),
-          ),
-        if (isAdmin)
-          _NavButton(
-            label: AppStrings.navSettings,
-            isActive: currentRoute == '/settings',
-            onTap: () => context.go('/settings'),
-          ),
-        const SizedBox(width: AppSizes.spacingSm),
-        Padding(
-          padding: const EdgeInsets.only(right: AppSizes.spacingMd),
-          child: OutlinedButton(
-            onPressed: onLogout,
-            child: const Text(
-              AppStrings.navLogout,
-              style: TextStyle(fontSize: AppSizes.fontSm),
-            ),
-          ),
-        ),
-      ],
+              const SizedBox(width: AppSizes.spacingSm),
+            ]
+          : <Widget>[
+              _NavButton(
+                label: AppStrings.navPos,
+                isActive: currentRoute == '/pos',
+                onTap: () => context.go('/pos'),
+              ),
+              _NavButton(
+                label: AppStrings.navOrders,
+                isActive: currentRoute == '/orders',
+                onTap: () => context.go('/orders'),
+              ),
+              _NavButton(
+                label: AppStrings.navReports,
+                isActive: currentRoute == '/reports',
+                onTap: () => context.go('/reports'),
+              ),
+              _NavButton(
+                label: AppStrings.navShifts,
+                isActive: currentRoute == '/shifts',
+                onTap: () => context.go('/shifts'),
+              ),
+              if (isAdmin)
+                _NavButton(
+                  label: AppStrings.navAdmin,
+                  isActive: currentRoute.startsWith('/admin'),
+                  onTap: () => context.go('/admin'),
+                ),
+              const SizedBox(width: AppSizes.spacingSm),
+              Padding(
+                padding: const EdgeInsets.only(right: AppSizes.spacingMd),
+                child: OutlinedButton(
+                  onPressed: onLogout,
+                  child: Text(
+                    AppStrings.navLogout,
+                    style: const TextStyle(fontSize: AppSizes.fontSm),
+                  ),
+                ),
+              ),
+            ],
     );
+  }
+
+  ({Color color, String label}) _resolveShiftIndicator(Shift? shift) {
+    if (shift == null) {
+      return (color: AppColors.error, label: AppStrings.shiftClosed);
+    }
+
+    switch (shift.status) {
+      case ShiftStatus.open:
+        return (
+          color: AppColors.success,
+          label: AppStrings.openShiftLabel(shift.id),
+        );
+      case ShiftStatus.closed:
+        return (color: AppColors.error, label: AppStrings.shiftClosed);
+      case ShiftStatus.locked:
+        return (
+          color: AppColors.warning,
+          label:
+              '${AppStrings.openShiftLabel(shift.id)} (${AppStrings.statusLocked})',
+        );
+    }
   }
 }
 

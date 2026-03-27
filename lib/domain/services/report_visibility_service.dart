@@ -29,27 +29,59 @@ class ReportVisibilityService {
     }
 
     final double safeRatio = _normalizedRatio(ratio);
+    final int effectiveNetSalesMinor =
+        raw.netSalesMinor == 0 && raw.refundCount == 0
+        ? raw.paidTotalMinor
+        : raw.netSalesMinor;
+    final int effectiveCashGrossTotalMinor =
+        raw.cashGrossTotalMinor == 0 && raw.refundCount == 0
+        ? raw.cashTotalMinor
+        : raw.cashGrossTotalMinor;
+    final int effectiveCardGrossTotalMinor =
+        raw.cardGrossTotalMinor == 0 && raw.refundCount == 0
+        ? raw.cardTotalMinor
+        : raw.cardGrossTotalMinor;
     final int visiblePaidTotalMinor = _maskAmount(
       raw.paidTotalMinor,
+      safeRatio,
+    );
+    final int visibleRefundTotalMinor = _maskAmount(
+      raw.refundTotalMinor,
+      safeRatio,
+    );
+    final int visibleNetSalesMinor = _maskAmount(
+      effectiveNetSalesMinor,
       safeRatio,
     );
     final int visibleOpenTotalMinor = _maskAmount(
       raw.openTotalMinor,
       safeRatio,
     );
+    final int visibleCashGrossTotalMinor = _maskAmount(
+      effectiveCashGrossTotalMinor,
+      safeRatio,
+    );
     final int visibleCashTotalMinor = _maskAmount(
       raw.cashTotalMinor,
       safeRatio,
     );
+    final int visibleCardGrossTotalMinor = _maskAmount(
+      effectiveCardGrossTotalMinor,
+      safeRatio,
+    );
     final int visibleCardTotalMinor = _allocateRemainingTotal(
-      maskedParentTotal: visiblePaidTotalMinor,
+      maskedParentTotal: visibleNetSalesMinor,
       firstChildMaskedTotal: visibleCashTotalMinor,
     );
 
     return raw.copyWith(
       paidTotalMinor: visiblePaidTotalMinor,
+      refundTotalMinor: visibleRefundTotalMinor,
+      netSalesMinor: visibleNetSalesMinor,
       openTotalMinor: visibleOpenTotalMinor,
+      cashGrossTotalMinor: visibleCashGrossTotalMinor,
       cashTotalMinor: visibleCashTotalMinor,
+      cardGrossTotalMinor: visibleCardGrossTotalMinor,
       cardTotalMinor: visibleCardTotalMinor,
     );
   }

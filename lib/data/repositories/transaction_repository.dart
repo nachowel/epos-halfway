@@ -3,17 +3,28 @@ import 'package:drift/native.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/errors/exceptions.dart';
+import '../../domain/models/order_lifecycle_policy.dart';
+import 'sync_queue_repository.dart';
 import '../../domain/models/order_modifier.dart';
 import '../../domain/models/transaction.dart';
 import '../../domain/models/transaction_line.dart';
 import '../database/app_database.dart' as db;
 
 class TransactionRepository {
-  TransactionRepository(this._database, {Uuid? uuidGenerator})
-    : _uuidGenerator = uuidGenerator ?? const Uuid();
+  TransactionRepository(
+    this._database, {
+    Uuid? uuidGenerator,
+    SyncQueueRepository? syncQueueRepository,
+  }) : _uuidGenerator = uuidGenerator ?? const Uuid(),
+       _syncQueueRepository = syncQueueRepository;
 
   final db.AppDatabase _database;
   final Uuid _uuidGenerator;
+  final SyncQueueRepository? _syncQueueRepository;
+
+  Future<T> runInTransaction<T>(Future<T> Function() action) {
+    return _database.transaction(action);
+  }
 
   Future<Transaction?> getById(int id) async {
     final db.Transaction? row = await (_database.select(
@@ -45,9 +56,11 @@ class TransactionRepository {
     return rows.map(_mapTransaction).toList(growable: false);
   }
 
-  Future<List<Transaction>> getOpenOrders({int? shiftId}) async {
+  Future<List<Transaction>> getActiveOrders({int? shiftId}) async {
     final query = _database.select(_database.transactions)
-      ..where((db.$TransactionsTable t) => t.status.equals('open'))
+      ..where((db.$TransactionsTable t) {
+        return t.status.equals('draft') | t.status.equals('sent');
+      })
       ..orderBy(<OrderingTerm Function(db.$TransactionsTable)>[
         (db.$TransactionsTable t) => OrderingTerm.asc(t.createdAt),
         (db.$TransactionsTable t) => OrderingTerm.asc(t.id),
@@ -80,6 +93,26 @@ class TransactionRepository {
     return rows.map(_mapTransaction).toList(growable: false);
   }
 
+  Future<List<Transaction>> getPaidTransactionsBetween({
+    required DateTime startInclusive,
+    required DateTime endExclusive,
+  }) async {
+    final List<db.Transaction> rows =
+        await (_database.select(_database.transactions)
+              ..where((db.$TransactionsTable t) {
+                return t.status.equals('paid') &
+                    t.paidAt.isBiggerOrEqualValue(startInclusive) &
+                    t.paidAt.isSmallerThanValue(endExclusive);
+              })
+              ..orderBy(<OrderingTerm Function(db.$TransactionsTable)>[
+                (db.$TransactionsTable t) => OrderingTerm.desc(t.paidAt),
+                (db.$TransactionsTable t) => OrderingTerm.desc(t.id),
+              ]))
+            .get();
+
+    return rows.map(_mapTransaction).toList(growable: false);
+  }
+
   Future<Transaction> createTransaction({
     required int shiftId,
     required int userId,
@@ -87,7 +120,7 @@ class TransactionRepository {
     required String uuid,
     required String idempotencyKey,
   }) async {
-    return _database.transaction(() async {
+    return runInTransaction(() async {
       final DateTime now = DateTime.now();
       try {
         final int createdId = await _database
@@ -100,7 +133,7 @@ class TransactionRepository {
                 idempotencyKey: idempotencyKey,
                 updatedAt: now,
                 tableNumber: Value<int?>(tableNumber),
-                status: const Value<String>('open'),
+                status: const Value<String>('draft'),
               ),
             );
         final db.Transaction created = await _findTransactionByIdOrThrow(
@@ -137,43 +170,34 @@ class TransactionRepository {
       throw ValidationException('Quantity must be greater than zero.');
     }
 
-    return _database.transaction(() async {
-      await _ensureTransactionIsOpen(transactionId);
+    await _ensureTransactionIsDraft(transactionId);
 
-      final db.Product? productRow =
-          await (_database.select(_database.products)
-                ..where((db.$ProductsTable t) {
-                  return t.id.equals(productId) & t.isActive.equals(true);
-                }))
-              .getSingleOrNull();
-      if (productRow == null) {
-        throw NotFoundException('Active product not found: $productId');
-      }
+    final db.Product? productRow =
+        await (_database.select(_database.products)
+              ..where((db.$ProductsTable t) {
+                return t.id.equals(productId) & t.isActive.equals(true);
+              }))
+            .getSingleOrNull();
+    if (productRow == null) {
+      throw NotFoundException('Active product not found: $productId');
+    }
 
-      final int lineTotalMinor = productRow.priceMinor * quantity;
-      final String lineUuid = _uuidGenerator.v4();
+    final int lineId = await _database
+        .into(_database.transactionLines)
+        .insert(
+          db.TransactionLinesCompanion.insert(
+            uuid: _uuidGenerator.v4(),
+            transactionId: transactionId,
+            productId: productId,
+            productName: productRow.name,
+            unitPriceMinor: productRow.priceMinor,
+            quantity: Value<int>(quantity),
+            lineTotalMinor: productRow.priceMinor * quantity,
+          ),
+        );
 
-      final int lineId = await _database
-          .into(_database.transactionLines)
-          .insert(
-            db.TransactionLinesCompanion.insert(
-              uuid: lineUuid,
-              transactionId: transactionId,
-              productId: productId,
-              productName: productRow.name,
-              unitPriceMinor: productRow.priceMinor,
-              quantity: Value<int>(quantity),
-              lineTotalMinor: lineTotalMinor,
-            ),
-          );
-
-      await _recalculateTotalsInCurrentTransaction(transactionId);
-
-      final db.TransactionLine insertedLine = await _findLineByIdOrThrow(
-        lineId,
-      );
-      return _mapLine(insertedLine);
-    });
+    final db.TransactionLine insertedLine = await _findLineByIdOrThrow(lineId);
+    return _mapLine(insertedLine);
   }
 
   Future<OrderModifier> addModifier({
@@ -186,39 +210,48 @@ class TransactionRepository {
       throw ValidationException('extraPriceMinor cannot be negative.');
     }
 
-    return _database.transaction(() async {
-      final db.TransactionLine? lineRow =
-          await (_database.select(_database.transactionLines)..where(
-                (db.$TransactionLinesTable t) => t.id.equals(transactionLineId),
-              ))
-              .getSingleOrNull();
-      if (lineRow == null) {
-        throw NotFoundException(
-          'Transaction line not found: $transactionLineId',
+    final db.TransactionLine lineRow = await _findLineByIdOrThrow(
+      transactionLineId,
+    );
+    await _ensureTransactionIsDraft(lineRow.transactionId);
+
+    final int modifierId = await _database
+        .into(_database.orderModifiers)
+        .insert(
+          db.OrderModifiersCompanion.insert(
+            uuid: _uuidGenerator.v4(),
+            transactionLineId: transactionLineId,
+            action: _modifierActionToDb(action),
+            itemName: itemName,
+            extraPriceMinor: Value<int>(extraPriceMinor),
+          ),
         );
-      }
 
-      await _ensureTransactionIsOpen(lineRow.transactionId);
+    await _recalculateLineTotalInCurrentTransaction(transactionLineId);
 
-      final int modifierId = await _database
-          .into(_database.orderModifiers)
-          .insert(
-            db.OrderModifiersCompanion.insert(
-              uuid: _uuidGenerator.v4(),
-              transactionLineId: transactionLineId,
-              action: _modifierActionToDb(action),
-              itemName: itemName,
-              extraPriceMinor: Value<int>(extraPriceMinor),
-            ),
-          );
+    final db.OrderModifier insertedModifier = await _findModifierByIdOrThrow(
+      modifierId,
+    );
+    return _mapModifier(insertedModifier);
+  }
 
-      await _recalculateTotalsInCurrentTransaction(lineRow.transactionId);
+  Future<int> getTransactionIdByLine(int transactionLineId) async {
+    final db.TransactionLine line = await _findLineByIdOrThrow(
+      transactionLineId,
+    );
+    return line.transactionId;
+  }
 
-      final db.OrderModifier insertedModifier = await _findModifierByIdOrThrow(
-        modifierId,
-      );
-      return _mapModifier(insertedModifier);
-    });
+  Future<({int subtotalMinor, int modifierTotalMinor, int totalAmountMinor})>
+  calculateTotals(int transactionId) async {
+    await _findTransactionByIdOrThrow(transactionId);
+    final int subtotalMinor = await _sumProductTotals(transactionId);
+    final int modifierTotalMinor = await _sumModifierTotals(transactionId);
+    return (
+      subtotalMinor: subtotalMinor,
+      modifierTotalMinor: modifierTotalMinor,
+      totalAmountMinor: subtotalMinor + modifierTotalMinor,
+    );
   }
 
   Future<void> updateTotals({
@@ -253,9 +286,9 @@ class TransactionRepository {
     required int? tableNumber,
   }) async {
     final db.Transaction row = await _findTransactionByIdOrThrow(transactionId);
-    if (_statusFromDb(row.status) != TransactionStatus.open) {
+    if (!OrderLifecyclePolicy.canUpdateTableNumber(_statusFromDb(row.status))) {
       throw InvalidStateTransitionException(
-        'Table number can be updated only for OPEN transactions.',
+        'Table number can be updated only for draft or sent transactions.',
       );
     }
 
@@ -275,9 +308,54 @@ class TransactionRepository {
   }
 
   Future<void> recalculateTotals(int transactionId) async {
-    await _database.transaction(() async {
-      await _findTransactionByIdOrThrow(transactionId);
+    await runInTransaction(() async {
       await _recalculateTotalsInCurrentTransaction(transactionId);
+    });
+  }
+
+  Future<void> deleteDraft(int transactionId) async {
+    await runInTransaction(() async {
+      final db.Transaction row = await _ensureTransactionIsDraft(transactionId);
+      final List<db.TransactionLine> lines =
+          await (_database.select(_database.transactionLines)
+                ..where((db.$TransactionLinesTable t) {
+                  return t.transactionId.equals(transactionId);
+                }))
+              .get();
+
+      final List<int> lineIds = lines
+          .map((db.TransactionLine line) => line.id)
+          .toList(growable: false);
+
+      if (lineIds.isNotEmpty) {
+        await (_database.delete(_database.orderModifiers)
+              ..where((db.$OrderModifiersTable t) {
+                return t.transactionLineId.isIn(lineIds);
+              }))
+            .go();
+      }
+
+      await (_database.delete(_database.transactionLines)
+            ..where((db.$TransactionLinesTable t) {
+              return t.transactionId.equals(transactionId);
+            }))
+          .go();
+
+      final int deletedCount = await (_database.delete(
+        _database.transactions,
+      )..where((db.$TransactionsTable t) => t.id.equals(transactionId))).go();
+
+      if (deletedCount == 0) {
+        throw NotFoundException('Transaction not found: $transactionId');
+      }
+
+      if (_syncQueueRepository != null) {
+        await (_database.delete(_database.syncQueue)
+              ..where((db.$SyncQueueTable t) {
+                return t.recordUuid.equals(row.uuid);
+              }))
+            .go();
+      }
     });
   }
 
@@ -290,67 +368,32 @@ class TransactionRepository {
       return;
     }
 
-    final int updatedCount =
-        await (_database.update(_database.transactions)
-              ..where((db.$TransactionsTable t) => t.id.equals(transactionId)))
-            .write(
-              db.TransactionsCompanion(
-                kitchenPrinted: kitchenPrinted == null
-                    ? const Value<bool>.absent()
-                    : Value<bool>(kitchenPrinted),
-                receiptPrinted: receiptPrinted == null
-                    ? const Value<bool>.absent()
-                    : Value<bool>(receiptPrinted),
-              ),
-            );
-
-    if (updatedCount == 0) {
-      throw NotFoundException('Transaction not found: $transactionId');
-    }
-  }
-
-  Future<void> markTransactionCancelled({
-    required int transactionId,
-    required int cancelledByUserId,
-  }) async {
-    await _database.transaction(() async {
+    await runInTransaction(() async {
       final db.Transaction row = await _findTransactionByIdOrThrow(
         transactionId,
       );
-      final TransactionStatus currentStatus = _statusFromDb(row.status);
-      if (currentStatus != TransactionStatus.open) {
-        throw InvalidStateTransitionException(
-          'Transition not allowed: $currentStatus -> ${TransactionStatus.cancelled}',
-        );
-      }
-
-      final int paymentCount = await _countPaymentsForTransaction(
-        transactionId,
-      );
-      if (paymentCount > 0) {
-        throw InvalidStateTransitionException(
-          'Cannot cancel transaction with existing payment.',
-        );
-      }
-
-      final DateTime now = DateTime.now();
       final int updatedCount =
           await (_database.update(
                 _database.transactions,
               )..where((db.$TransactionsTable t) => t.id.equals(transactionId)))
               .write(
                 db.TransactionsCompanion(
-                  status: Value<String>(
-                    _statusToDb(TransactionStatus.cancelled),
-                  ),
-                  cancelledAt: Value<DateTime?>(now),
-                  cancelledBy: Value<int?>(cancelledByUserId),
-                  paidAt: const Value<DateTime?>(null),
-                  updatedAt: Value<DateTime>(now),
+                  kitchenPrinted: kitchenPrinted == null
+                      ? const Value<bool>.absent()
+                      : Value<bool>(kitchenPrinted),
+                  receiptPrinted: receiptPrinted == null
+                      ? const Value<bool>.absent()
+                      : Value<bool>(receiptPrinted),
+                  updatedAt: Value<DateTime>(DateTime.now()),
                 ),
               );
+
       if (updatedCount == 0) {
-        throw DatabaseException('Failed to cancel transaction: $transactionId');
+        throw NotFoundException('Transaction not found: $transactionId');
+      }
+
+      if (OrderLifecyclePolicy.isTerminal(_statusFromDb(row.status))) {
+        await _syncQueueRepository?.addToQueue('transactions', row.uuid);
       }
     });
   }
@@ -383,19 +426,57 @@ class TransactionRepository {
     return rows.map(_mapModifier).toList(growable: false);
   }
 
+  Future<List<String>> getLineUuids(int transactionId) async {
+    final List<db.TransactionLine> rows =
+        await (_database.select(_database.transactionLines)
+              ..where((db.$TransactionLinesTable t) {
+                return t.transactionId.equals(transactionId);
+              })
+              ..orderBy(<OrderingTerm Function(db.$TransactionLinesTable)>[
+                (db.$TransactionLinesTable t) => OrderingTerm.asc(t.id),
+              ]))
+            .get();
+
+    return rows
+        .map((db.TransactionLine row) => row.uuid)
+        .toList(growable: false);
+  }
+
+  Future<List<String>> getModifierUuidsByTransaction(int transactionId) async {
+    final List<TypedResult> rows =
+        await (_database.select(_database.orderModifiers).join(<Join>[
+                innerJoin(
+                  _database.transactionLines,
+                  _database.transactionLines.id.equalsExp(
+                    _database.orderModifiers.transactionLineId,
+                  ),
+                ),
+              ])
+              ..where(
+                _database.transactionLines.transactionId.equals(transactionId),
+              )
+              ..orderBy(<OrderingTerm>[
+                OrderingTerm.asc(_database.orderModifiers.id),
+              ]))
+            .get();
+
+    return rows
+        .map((TypedResult row) => row.readTable(_database.orderModifiers).uuid)
+        .toList(growable: false);
+  }
+
   Future<void> _recalculateTotalsInCurrentTransaction(int transactionId) async {
-    final int subtotalMinor = await _sumLineTotals(transactionId);
-    final int modifierTotalMinor = await _sumModifierTotals(transactionId);
-    final int totalAmountMinor = subtotalMinor + modifierTotalMinor;
+    final ({int subtotalMinor, int modifierTotalMinor, int totalAmountMinor})
+    totals = await calculateTotals(transactionId);
 
     final int updatedCount =
         await (_database.update(_database.transactions)
               ..where((db.$TransactionsTable t) => t.id.equals(transactionId)))
             .write(
               db.TransactionsCompanion(
-                subtotalMinor: Value<int>(subtotalMinor),
-                modifierTotalMinor: Value<int>(modifierTotalMinor),
-                totalAmountMinor: Value<int>(totalAmountMinor),
+                subtotalMinor: Value<int>(totals.subtotalMinor),
+                modifierTotalMinor: Value<int>(totals.modifierTotalMinor),
+                totalAmountMinor: Value<int>(totals.totalAmountMinor),
                 updatedAt: Value<DateTime>(DateTime.now()),
               ),
             );
@@ -405,29 +486,59 @@ class TransactionRepository {
     }
   }
 
-  Future<int> _sumLineTotals(int transactionId) async {
-    final Expression<int> totalExpression = _database
-        .transactionLines
-        .lineTotalMinor
-        .sum();
-    final TypedResult row =
-        await (_database.selectOnly(_database.transactionLines)
-              ..addColumns(<Expression<int>>[totalExpression])
-              ..where(
-                _database.transactionLines.transactionId.equals(transactionId),
-              ))
-            .getSingle();
-    return row.read(totalExpression) ?? 0;
+  Future<void> _recalculateLineTotalInCurrentTransaction(
+    int transactionLineId,
+  ) async {
+    final db.TransactionLine line = await _findLineByIdOrThrow(
+      transactionLineId,
+    );
+    final int modifierTotalMinor = await _sumModifierTotalsForLine(
+      transactionLineId,
+    );
+    final int lineTotalMinor =
+        (line.unitPriceMinor * line.quantity) + modifierTotalMinor;
+
+    final int updatedCount =
+        await (_database.update(_database.transactionLines)
+              ..where((db.$TransactionLinesTable t) {
+                return t.id.equals(transactionLineId);
+              }))
+            .write(
+              db.TransactionLinesCompanion(
+                lineTotalMinor: Value<int>(lineTotalMinor),
+              ),
+            );
+
+    if (updatedCount == 0) {
+      throw NotFoundException('Transaction line not found: $transactionLineId');
+    }
+  }
+
+  Future<int> _sumProductTotals(int transactionId) async {
+    final QueryRow row = await _database
+        .customSelect(
+          '''
+      SELECT COALESCE(SUM(tl.unit_price_minor * tl.quantity), 0) AS subtotal_minor
+      FROM transaction_lines tl
+      WHERE tl.transaction_id = ?
+      ''',
+          variables: <Variable<Object>>[Variable<int>(transactionId)],
+          readsFrom: <ResultSetImplementation<dynamic, dynamic>>{
+            _database.transactionLines,
+          },
+        )
+        .getSingle();
+    return row.read<int>('subtotal_minor');
   }
 
   Future<int> _sumModifierTotals(int transactionId) async {
     final QueryRow row = await _database
         .customSelect(
           '''
-      SELECT COALESCE(SUM(om.extra_price_minor), 0) AS modifier_total
+      SELECT COALESCE(SUM(om.extra_price_minor * tl.quantity), 0) AS modifier_total
       FROM order_modifiers om
       INNER JOIN transaction_lines tl ON tl.id = om.transaction_line_id
-          WHERE tl.transaction_id = ?
+      WHERE tl.transaction_id = ?
       ''',
           variables: <Variable<Object>>[Variable<int>(transactionId)],
           readsFrom: <ResultSetImplementation<dynamic, dynamic>>{
@@ -440,14 +551,24 @@ class TransactionRepository {
     return row.read<int>('modifier_total');
   }
 
-  Future<int> _countPaymentsForTransaction(int transactionId) async {
-    final Expression<int> countExpression = _database.payments.id.count();
-    final TypedResult row =
-        await (_database.selectOnly(_database.payments)
-              ..addColumns(<Expression<int>>[countExpression])
-              ..where(_database.payments.transactionId.equals(transactionId)))
-            .getSingle();
-    return row.read(countExpression) ?? 0;
+  Future<int> _sumModifierTotalsForLine(int transactionLineId) async {
+    final QueryRow row = await _database
+        .customSelect(
+          '''
+      SELECT COALESCE(SUM(om.extra_price_minor * tl.quantity), 0) AS modifier_total
+      FROM order_modifiers om
+      INNER JOIN transaction_lines tl ON tl.id = om.transaction_line_id
+      WHERE tl.id = ?
+      ''',
+          variables: <Variable<Object>>[Variable<int>(transactionLineId)],
+          readsFrom: <ResultSetImplementation<dynamic, dynamic>>{
+            _database.orderModifiers,
+            _database.transactionLines,
+          },
+        )
+        .getSingle();
+
+    return row.read<int>('modifier_total');
   }
 
   Future<db.Transaction> _findTransactionByIdOrThrow(int id) async {
@@ -460,11 +581,11 @@ class TransactionRepository {
     return row;
   }
 
-  Future<db.Transaction> _ensureTransactionIsOpen(int id) async {
+  Future<db.Transaction> _ensureTransactionIsDraft(int id) async {
     final db.Transaction row = await _findTransactionByIdOrThrow(id);
-    if (_statusFromDb(row.status) != TransactionStatus.open) {
+    if (!OrderLifecyclePolicy.canMutateLineItems(_statusFromDb(row.status))) {
       throw InvalidStateTransitionException(
-        'Cannot mutate non-open transaction: $id',
+        'Cannot mutate non-draft transaction: $id',
       );
     }
     return row;
@@ -540,7 +661,10 @@ class TransactionRepository {
   TransactionStatus _statusFromDb(String value) {
     switch (value) {
       case 'open':
-        return TransactionStatus.open;
+      case 'draft':
+        return TransactionStatus.draft;
+      case 'sent':
+        return TransactionStatus.sent;
       case 'paid':
         return TransactionStatus.paid;
       case 'cancelled':
@@ -552,8 +676,10 @@ class TransactionRepository {
 
   String _statusToDb(TransactionStatus value) {
     switch (value) {
-      case TransactionStatus.open:
-        return 'open';
+      case TransactionStatus.draft:
+        return 'draft';
+      case TransactionStatus.sent:
+        return 'sent';
       case TransactionStatus.paid:
         return 'paid';
       case TransactionStatus.cancelled:

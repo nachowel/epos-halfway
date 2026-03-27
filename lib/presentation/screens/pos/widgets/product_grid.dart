@@ -18,7 +18,7 @@ class ProductGrid extends StatelessWidget {
 
   final List<Product> products;
   final bool isLoading;
-  final ValueChanged<Product> onTapProduct;
+  final ValueChanged<Product>? onTapProduct;
 
   @override
   Widget build(BuildContext context) {
@@ -26,10 +26,10 @@ class ProductGrid extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
     if (products.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           AppStrings.noProductsInCategory,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: AppSizes.fontSm,
             color: AppColors.textSecondary,
           ),
@@ -56,7 +56,7 @@ class ProductGrid extends StatelessWidget {
             final Product product = products[index];
             return ProductCard(
               product: product,
-              onTap: () => onTapProduct(product),
+              onTap: onTapProduct == null ? null : () => onTapProduct!(product),
             );
           },
         );

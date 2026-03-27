@@ -16,6 +16,7 @@ class ReportsState {
     required this.currentShiftId,
     required this.isLoading,
     required this.isActionLoading,
+    required this.isPrintLoading,
     required this.errorMessage,
   });
 
@@ -24,12 +25,14 @@ class ReportsState {
       currentShiftId = null,
       isLoading = false,
       isActionLoading = false,
+      isPrintLoading = false,
       errorMessage = null;
 
   final ShiftReport? currentReport;
   final int? currentShiftId;
   final bool isLoading;
   final bool isActionLoading;
+  final bool isPrintLoading;
   final String? errorMessage;
 
   ReportsState copyWith({
@@ -37,6 +40,7 @@ class ReportsState {
     Object? currentShiftId = _unset,
     bool? isLoading,
     bool? isActionLoading,
+    bool? isPrintLoading,
     Object? errorMessage = _unset,
   }) {
     return ReportsState(
@@ -48,6 +52,7 @@ class ReportsState {
           : currentShiftId as int?,
       isLoading: isLoading ?? this.isLoading,
       isActionLoading: isActionLoading ?? this.isActionLoading,
+      isPrintLoading: isPrintLoading ?? this.isPrintLoading,
       errorMessage: errorMessage == _unset
           ? this.errorMessage
           : errorMessage as String?,
@@ -79,10 +84,15 @@ class ReportsNotifier extends StateNotifier<ReportsState> {
         isLoading: false,
         errorMessage: null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'report_load_shift_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
@@ -103,10 +113,15 @@ class ReportsNotifier extends StateNotifier<ReportsState> {
       }
 
       await loadReportForShift(openShift.id);
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'report_load_open_shift_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
@@ -125,16 +140,21 @@ class ReportsNotifier extends StateNotifier<ReportsState> {
           .takeCashierEndOfDayPreview(user: currentUser);
       await _syncAfterReportAction(result);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isActionLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'cashier_preview_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
   }
 
-  Future<bool> runAdminFinalClose() async {
+  Future<bool> runAdminFinalClose({required int countedCashMinor}) async {
     final User? currentUser = _ref.read(authNotifierProvider).currentUser;
     if (currentUser == null) {
       state = state.copyWith(errorMessage: AppStrings.accessDenied);
@@ -145,14 +165,48 @@ class ReportsNotifier extends StateNotifier<ReportsState> {
     try {
       final ZReportActionResult result = await _ref
           .read(reportServiceProvider)
-          .runAdminFinalClose(user: currentUser);
+          .runAdminFinalCloseWithCountedCash(
+            user: currentUser,
+            countedCashMinor: countedCashMinor,
+          );
       await _syncAfterReportAction(result);
       await _ref.read(shiftNotifierProvider.notifier).loadRecentShifts();
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isActionLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'admin_final_close_failed',
+          stackTrace: stackTrace,
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> printCurrentReport() async {
+    final ShiftReport? report = state.currentReport;
+    if (report == null) {
+      state = state.copyWith(errorMessage: AppStrings.noReportData);
+      return false;
+    }
+
+    state = state.copyWith(isPrintLoading: true, errorMessage: null);
+    try {
+      await _ref.read(printerServiceProvider).printZReport(report);
+      state = state.copyWith(isPrintLoading: false, errorMessage: null);
+      return true;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        isPrintLoading: false,
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'z_report_print_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -181,6 +235,21 @@ final rawShiftReportProvider = FutureProvider.family<ShiftReport, int>((
   int shiftId,
 ) {
   return ref.read(reportServiceProvider).getShiftReport(shiftId);
+});
+
+final visibleShiftReportProvider = FutureProvider.family<ShiftReport, int>((
+  Ref ref,
+  int shiftId,
+) async {
+  final User? currentUser = ref.read(authNotifierProvider).currentUser;
+  if (currentUser == null) {
+    throw StateError(
+      'Current user is required to load a visible shift report.',
+    );
+  }
+  return ref
+      .read(reportServiceProvider)
+      .getVisibleShiftReport(shiftId: shiftId, user: currentUser);
 });
 
 const Object _unset = Object();

@@ -9,6 +9,8 @@ import '../../domain/models/checkout_modifier.dart';
 import '../../domain/models/open_order_summary.dart';
 import '../../domain/models/order_modifier.dart';
 import '../../domain/models/payment.dart';
+import '../../domain/models/payment_adjustment.dart';
+import '../../domain/models/print_job.dart';
 import '../../domain/models/transaction.dart';
 import '../../domain/models/transaction_line.dart';
 import '../../domain/models/user.dart';
@@ -23,10 +25,21 @@ class OrderDetailLine {
 }
 
 class OrderDetails {
-  const OrderDetails({required this.transaction, required this.lines});
+  const OrderDetails({
+    required this.transaction,
+    required this.payment,
+    required this.paymentAdjustment,
+    required this.lines,
+    required this.kitchenPrintJob,
+    required this.receiptPrintJob,
+  });
 
   final Transaction transaction;
+  final Payment? payment;
+  final PaymentAdjustment? paymentAdjustment;
   final List<OrderDetailLine> lines;
+  final PrintJob? kitchenPrintJob;
+  final PrintJob? receiptPrintJob;
 }
 
 class OrdersState {
@@ -124,9 +137,24 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
   Future<void> refreshOpenOrders() async {
     state = state.copyWith(isRefreshing: true, errorMessage: null);
     try {
+      final activeShift = await _ref
+          .read(shiftSessionServiceProvider)
+          .getBackendOpenShift();
+      if (activeShift == null) {
+        state = state.copyWith(
+          openOrders: const <Transaction>[],
+          openOrderSummaries: const <OpenOrderSummary>[],
+          lineCountByOrderId: const <int, int>{},
+          selectedOrderId: null,
+          isRefreshing: false,
+          errorMessage: null,
+        );
+        return;
+      }
+
       final List<OpenOrderSummary> openOrderSummaries = await _ref
           .read(orderServiceProvider)
-          .getOpenOrderSummaries();
+          .getOrderSummariesByShift(activeShift.id);
       final List<Transaction> openOrders = openOrderSummaries
           .map((OpenOrderSummary summary) => summary.transaction)
           .toList(growable: false);
@@ -148,10 +176,15 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
         isRefreshing: false,
         errorMessage: null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isRefreshing: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'orders_refresh_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
@@ -163,6 +196,7 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
   Future<Transaction?> createOrderFromCart({
     required User currentUser,
     int? tableNumber,
+    PaymentMethod? immediatePaymentMethod,
   }) async {
     if (state.isCheckoutLoading) {
       return null;
@@ -186,6 +220,7 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
             tableNumber: tableNumber,
             cartItems: _toCheckoutItems(cartItems),
             idempotencyKey: _pendingIdempotencyKey!,
+            immediatePaymentMethod: immediatePaymentMethod,
           );
 
       _pendingIdempotencyKey = null;
@@ -197,10 +232,15 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
         errorMessage: null,
       );
       return transaction;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isCheckoutLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_checkout_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return null;
     }
@@ -226,10 +266,44 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
       await refreshOpenOrders();
       state = state.copyWith(isPaymentLoading: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isPaymentLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_payment_failed',
+          stackTrace: stackTrace,
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> sendOrder({
+    required int transactionId,
+    required User currentUser,
+  }) async {
+    if (state.isCheckoutLoading) {
+      return false;
+    }
+    state = state.copyWith(isCheckoutLoading: true, errorMessage: null);
+    try {
+      await _ref
+          .read(orderServiceProvider)
+          .sendOrder(transactionId: transactionId, currentUser: currentUser);
+      await refreshOpenOrders();
+      state = state.copyWith(isCheckoutLoading: false, errorMessage: null);
+      return true;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        isCheckoutLoading: false,
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_send_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -250,10 +324,44 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
       await refreshOpenOrders();
       state = state.copyWith(isCancelLoading: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isCancelLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_cancel_failed',
+          stackTrace: stackTrace,
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> discardDraft({
+    required int transactionId,
+    required User currentUser,
+  }) async {
+    if (state.isCancelLoading) {
+      return false;
+    }
+    state = state.copyWith(isCancelLoading: true, errorMessage: null);
+    try {
+      await _ref
+          .read(orderServiceProvider)
+          .discardDraft(transactionId: transactionId, currentUser: currentUser);
+      await refreshOpenOrders();
+      state = state.copyWith(isCancelLoading: false, errorMessage: null);
+      return true;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        isCancelLoading: false,
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_discard_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -265,14 +373,21 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
     }
     state = state.copyWith(isPrintLoading: true, errorMessage: null);
     try {
-      await _ref.read(printerServiceProvider).printKitchenTicket(transactionId);
+      await _ref
+          .read(printerServiceProvider)
+          .printKitchenTicket(transactionId, allowReprint: true);
       await refreshOpenOrders();
       state = state.copyWith(isPrintLoading: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isPrintLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'kitchen_reprint_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -284,14 +399,21 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
     }
     state = state.copyWith(isPrintLoading: true, errorMessage: null);
     try {
-      await _ref.read(printerServiceProvider).printReceipt(transactionId);
+      await _ref
+          .read(printerServiceProvider)
+          .printReceipt(transactionId, allowReprint: true);
       await refreshOpenOrders();
       state = state.copyWith(isPrintLoading: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isPrintLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'receipt_reprint_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -322,10 +444,44 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
           return OrderDetailLine(line: line, modifiers: modifiers);
         }),
       );
+      final List<PrintJob> printJobs = await _ref
+          .read(printJobRepositoryProvider)
+          .getByTransactionId(transactionId);
+      final Payment? payment = await _ref
+          .read(paymentRepositoryProvider)
+          .getByTransactionId(transactionId);
+      final PaymentAdjustment? paymentAdjustment = payment == null
+          ? null
+          : await _ref
+                .read(paymentAdjustmentRepositoryProvider)
+                .getByPaymentId(payment.id);
+      PrintJob? kitchenPrintJob;
+      PrintJob? receiptPrintJob;
+      for (final PrintJob job in printJobs) {
+        if (job.target == PrintJobTarget.kitchen) {
+          kitchenPrintJob = job;
+        } else if (job.target == PrintJobTarget.receipt) {
+          receiptPrintJob = job;
+        }
+      }
 
-      return OrderDetails(transaction: transaction, lines: detailLines);
-    } catch (error) {
-      state = state.copyWith(errorMessage: ErrorMapper.toUserMessage(error));
+      return OrderDetails(
+        transaction: transaction,
+        payment: payment,
+        paymentAdjustment: paymentAdjustment,
+        lines: detailLines,
+        kitchenPrintJob: kitchenPrintJob,
+        receiptPrintJob: receiptPrintJob,
+      );
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_detail_load_failed',
+          stackTrace: stackTrace,
+        ),
+      );
       return null;
     }
   }
@@ -349,10 +505,15 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
       await refreshOpenOrders();
       state = state.copyWith(isTableUpdateLoading: false, errorMessage: null);
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isTableUpdateLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_table_update_failed',
+          stackTrace: stackTrace,
+        ),
       );
       return false;
     }
@@ -360,6 +521,40 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
 
   void clearError() {
     state = state.copyWith(errorMessage: null);
+  }
+
+  Future<bool> refundOrder({
+    required int transactionId,
+    required String reason,
+    required User currentUser,
+  }) async {
+    if (state.isPaymentLoading) {
+      return false;
+    }
+    state = state.copyWith(isPaymentLoading: true, errorMessage: null);
+    try {
+      await _ref
+          .read(paymentServiceProvider)
+          .refundOrder(
+            transactionId: transactionId,
+            reason: reason,
+            currentUser: currentUser,
+          );
+      await refreshOpenOrders();
+      state = state.copyWith(isPaymentLoading: false, errorMessage: null);
+      return true;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        isPaymentLoading: false,
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'order_refund_failed',
+          stackTrace: stackTrace,
+        ),
+      );
+      return false;
+    }
   }
 
   List<CheckoutItem> _toCheckoutItems(List<CartItem> items) {

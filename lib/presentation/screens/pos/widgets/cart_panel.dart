@@ -12,6 +12,7 @@ class CartPanel extends StatelessWidget {
     required this.cartState,
     required this.canCreateOrder,
     required this.canPayNow,
+    required this.canClearCart,
     required this.isCheckoutLoading,
     required this.onIncreaseQuantity,
     required this.onDecreaseQuantity,
@@ -25,6 +26,7 @@ class CartPanel extends StatelessWidget {
   final CartState cartState;
   final bool canCreateOrder;
   final bool canPayNow;
+  final bool canClearCart;
   final bool isCheckoutLoading;
   final ValueChanged<String> onIncreaseQuantity;
   final ValueChanged<String> onDecreaseQuantity;
@@ -45,15 +47,18 @@ class CartPanel extends StatelessWidget {
       ),
       child: Column(
         children: <Widget>[
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(AppSizes.spacingMd),
             child: Row(
               children: <Widget>[
-                Icon(Icons.shopping_cart_checkout, color: AppColors.primary),
-                SizedBox(width: AppSizes.spacingSm),
+                const Icon(
+                  Icons.shopping_cart_checkout,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: AppSizes.spacingSm),
                 Text(
                   AppStrings.cartTitle,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: AppSizes.fontMd,
                     fontWeight: FontWeight.w700,
                   ),
@@ -63,13 +68,13 @@ class CartPanel extends StatelessWidget {
           ),
           Expanded(
             child: isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(AppSizes.spacingMd),
                       child: Text(
                         AppStrings.cartEmpty,
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: AppSizes.fontSm,
                           color: AppColors.textSecondary,
                         ),
@@ -125,9 +130,9 @@ class CartPanel extends StatelessWidget {
                         ? const CircularProgressIndicator(
                             color: AppColors.surface,
                           )
-                        : const Text(
+                        : Text(
                             AppStrings.createOrder,
-                            style: TextStyle(fontSize: AppSizes.fontSm),
+                            style: const TextStyle(fontSize: AppSizes.fontSm),
                           ),
                   ),
                 ),
@@ -140,9 +145,9 @@ class CartPanel extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryLight,
                     ),
-                    child: const Text(
+                    child: Text(
                       AppStrings.payNow,
-                      style: TextStyle(fontSize: AppSizes.fontSm),
+                      style: const TextStyle(fontSize: AppSizes.fontSm),
                     ),
                   ),
                 ),
@@ -153,10 +158,10 @@ class CartPanel extends StatelessWidget {
                   child: OutlinedButton(
                     onPressed: isEmpty || isCheckoutLoading
                         ? null
-                        : onClearCart,
-                    child: const Text(
+                        : (canClearCart ? onClearCart : null),
+                    child: Text(
                       AppStrings.clearCart,
-                      style: TextStyle(fontSize: AppSizes.fontSm),
+                      style: const TextStyle(fontSize: AppSizes.fontSm),
                     ),
                   ),
                 ),

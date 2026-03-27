@@ -13,7 +13,7 @@ class SeedData {
     }
 
     await db.transaction(() async {
-      await db
+      final int adminId = await db
           .into(db.users)
           .insert(
             UsersCompanion.insert(
@@ -24,11 +24,11 @@ class SeedData {
               ),
             ),
           );
-      await db
+      final int cashierId = await db
           .into(db.users)
           .insert(
             UsersCompanion.insert(
-              name: 'Kasiyer',
+              name: 'Cashier',
               role: 'cashier',
               pin: Value<String?>(
                 AuthSecurity.hashPin(AuthSecurity.demoCashierPin),
@@ -376,6 +376,235 @@ class SeedData {
               visibilityRatio: const Value<double>(1.0),
             ),
           );
+
+      final DateTime now = DateTime.now();
+      final int historicalShiftId = await _insertShift(
+        db,
+        openedBy: adminId,
+        openedAt: now.subtract(const Duration(days: 1, hours: 6)),
+        status: 'closed',
+        closedBy: adminId,
+        closedAt: now.subtract(const Duration(days: 1)),
+      );
+      final int activeShiftId = await _insertShift(
+        db,
+        openedBy: cashierId,
+        openedAt: now.subtract(const Duration(hours: 4)),
+      );
+
+      final int draftOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-draft-order',
+        shiftId: activeShiftId,
+        userId: cashierId,
+        status: 'draft',
+        tableNumber: 2,
+        createdAt: now.subtract(const Duration(hours: 3, minutes: 30)),
+      );
+      final int draftLineId = await _insertTransactionLine(
+        db,
+        transactionId: draftOrderId,
+        productId: latteId,
+        productName: 'Latte',
+        unitPriceMinor: 300,
+        quantity: 1,
+        lineTotalMinor: 350,
+      );
+      await _insertOrderModifier(
+        db,
+        transactionLineId: draftLineId,
+        itemName: 'Oat Milk',
+        action: 'add',
+        extraPriceMinor: 50,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: draftOrderId,
+        subtotalMinor: 300,
+        modifierTotalMinor: 50,
+      );
+
+      final int sentOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-sent-order',
+        shiftId: activeShiftId,
+        userId: cashierId,
+        status: 'sent',
+        tableNumber: 4,
+        createdAt: now.subtract(const Duration(hours: 2, minutes: 40)),
+      );
+      final int sentLineId = await _insertTransactionLine(
+        db,
+        transactionId: sentOrderId,
+        productId: burgerId,
+        productName: 'Burger',
+        unitPriceMinor: 900,
+        quantity: 1,
+        lineTotalMinor: 1000,
+      );
+      await _insertOrderModifier(
+        db,
+        transactionLineId: sentLineId,
+        itemName: 'Cheese',
+        action: 'add',
+        extraPriceMinor: 100,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: sentOrderId,
+        subtotalMinor: 900,
+        modifierTotalMinor: 100,
+      );
+
+      final int paidCashOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-paid-cash-order',
+        shiftId: activeShiftId,
+        userId: cashierId,
+        status: 'paid',
+        tableNumber: 1,
+        createdAt: now.subtract(const Duration(hours: 2)),
+        paidAt: now.subtract(const Duration(hours: 1, minutes: 45)),
+      );
+      final int paidCashLineId = await _insertTransactionLine(
+        db,
+        transactionId: paidCashOrderId,
+        productId: se5BreakfastId,
+        productName: 'SE5 Breakfast',
+        unitPriceMinor: 850,
+        quantity: 1,
+        lineTotalMinor: 1000,
+      );
+      await _insertOrderModifier(
+        db,
+        transactionLineId: paidCashLineId,
+        itemName: 'Extra Egg',
+        action: 'add',
+        extraPriceMinor: 150,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: paidCashOrderId,
+        subtotalMinor: 850,
+        modifierTotalMinor: 150,
+      );
+      await _insertPayment(
+        db,
+        uuid: 'seed-paid-cash-payment',
+        transactionId: paidCashOrderId,
+        method: 'cash',
+        amountMinor: 1000,
+        paidAt: now.subtract(const Duration(hours: 1, minutes: 45)),
+      );
+
+      final int paidCardOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-paid-card-order',
+        shiftId: activeShiftId,
+        userId: cashierId,
+        status: 'paid',
+        tableNumber: 6,
+        createdAt: now.subtract(const Duration(hours: 1, minutes: 20)),
+        paidAt: now.subtract(const Duration(hours: 1)),
+      );
+      final int paidCardLineId = await _insertTransactionLine(
+        db,
+        transactionId: paidCardOrderId,
+        productId: chickenWrapId,
+        productName: 'Chicken Wrap',
+        unitPriceMinor: 700,
+        quantity: 1,
+        lineTotalMinor: 850,
+      );
+      await _insertOrderModifier(
+        db,
+        transactionLineId: paidCardLineId,
+        itemName: 'Avocado',
+        action: 'add',
+        extraPriceMinor: 150,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: paidCardOrderId,
+        subtotalMinor: 700,
+        modifierTotalMinor: 150,
+      );
+      await _insertPayment(
+        db,
+        uuid: 'seed-paid-card-payment',
+        transactionId: paidCardOrderId,
+        method: 'card',
+        amountMinor: 850,
+        paidAt: now.subtract(const Duration(hours: 1)),
+      );
+
+      final int cancelledOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-cancelled-order',
+        shiftId: activeShiftId,
+        userId: cashierId,
+        status: 'cancelled',
+        tableNumber: 3,
+        createdAt: now.subtract(const Duration(minutes: 50)),
+        cancelledAt: now.subtract(const Duration(minutes: 35)),
+        cancelledBy: cashierId,
+      );
+      final int cancelledLineId = await _insertTransactionLine(
+        db,
+        transactionId: cancelledOrderId,
+        productId: iceCreamId,
+        productName: 'Ice Cream',
+        unitPriceMinor: 350,
+        quantity: 1,
+        lineTotalMinor: 400,
+      );
+      await _insertOrderModifier(
+        db,
+        transactionLineId: cancelledLineId,
+        itemName: 'Chocolate Sauce',
+        action: 'add',
+        extraPriceMinor: 50,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: cancelledOrderId,
+        subtotalMinor: 350,
+        modifierTotalMinor: 50,
+      );
+
+      final int historyPaidOrderId = await _insertTransaction(
+        db,
+        uuid: 'seed-history-paid-order',
+        shiftId: historicalShiftId,
+        userId: adminId,
+        status: 'paid',
+        tableNumber: 8,
+        createdAt: now.subtract(const Duration(days: 1, hours: 4)),
+        paidAt: now.subtract(const Duration(days: 1, hours: 3, minutes: 40)),
+      );
+      await _insertTransactionLine(
+        db,
+        transactionId: historyPaidOrderId,
+        productId: eggsBenedictId,
+        productName: 'Eggs Benedict',
+        unitPriceMinor: 750,
+        quantity: 1,
+        lineTotalMinor: 950,
+      );
+      await _updateTransactionTotals(
+        db,
+        transactionId: historyPaidOrderId,
+        subtotalMinor: 750,
+        modifierTotalMinor: 200,
+      );
+      await _insertPayment(
+        db,
+        uuid: 'seed-history-card-payment',
+        transactionId: historyPaidOrderId,
+        method: 'card',
+        amountMinor: 950,
+        paidAt: now.subtract(const Duration(days: 1, hours: 3, minutes: 40)),
+      );
     });
   }
 
@@ -430,6 +659,140 @@ class SeedData {
             name: name,
             type: type,
             extraPriceMinor: Value<int>(extraPriceMinor),
+          ),
+        );
+  }
+
+  static Future<int> _insertShift(
+    AppDatabase db, {
+    required int openedBy,
+    required DateTime openedAt,
+    String status = 'open',
+    int? closedBy,
+    DateTime? closedAt,
+  }) {
+    return db
+        .into(db.shifts)
+        .insert(
+          ShiftsCompanion.insert(
+            openedBy: openedBy,
+            openedAt: Value<DateTime>(openedAt),
+            status: Value<String>(status),
+            closedBy: Value<int?>(closedBy),
+            closedAt: Value<DateTime?>(closedAt),
+          ),
+        );
+  }
+
+  static Future<int> _insertTransaction(
+    AppDatabase db, {
+    required String uuid,
+    required int shiftId,
+    required int userId,
+    required String status,
+    int? tableNumber,
+    required DateTime createdAt,
+    DateTime? paidAt,
+    DateTime? cancelledAt,
+    int? cancelledBy,
+  }) {
+    return db
+        .into(db.transactions)
+        .insert(
+          TransactionsCompanion.insert(
+            uuid: uuid,
+            shiftId: shiftId,
+            userId: userId,
+            tableNumber: Value<int?>(tableNumber),
+            status: Value<String>(status),
+            createdAt: Value<DateTime>(createdAt),
+            paidAt: Value<DateTime?>(paidAt),
+            updatedAt: paidAt ?? cancelledAt ?? createdAt,
+            cancelledAt: Value<DateTime?>(cancelledAt),
+            cancelledBy: Value<int?>(cancelledBy),
+            idempotencyKey: '$uuid-idem',
+          ),
+        );
+  }
+
+  static Future<int> _insertTransactionLine(
+    AppDatabase db, {
+    required int transactionId,
+    required int productId,
+    required String productName,
+    required int unitPriceMinor,
+    required int quantity,
+    required int lineTotalMinor,
+  }) {
+    return db
+        .into(db.transactionLines)
+        .insert(
+          TransactionLinesCompanion.insert(
+            uuid: 'line-$transactionId-$productId-$quantity',
+            transactionId: transactionId,
+            productId: productId,
+            productName: productName,
+            unitPriceMinor: unitPriceMinor,
+            quantity: Value<int>(quantity),
+            lineTotalMinor: lineTotalMinor,
+          ),
+        );
+  }
+
+  static Future<int> _insertOrderModifier(
+    AppDatabase db, {
+    required int transactionLineId,
+    required String itemName,
+    required String action,
+    required int extraPriceMinor,
+  }) {
+    return db
+        .into(db.orderModifiers)
+        .insert(
+          OrderModifiersCompanion.insert(
+            uuid: 'modifier-$transactionLineId-$itemName',
+            transactionLineId: transactionLineId,
+            action: action,
+            itemName: itemName,
+            extraPriceMinor: Value<int>(extraPriceMinor),
+          ),
+        );
+  }
+
+  static Future<void> _updateTransactionTotals(
+    AppDatabase db, {
+    required int transactionId,
+    required int subtotalMinor,
+    required int modifierTotalMinor,
+  }) async {
+    await (db.update(
+      db.transactions,
+    )..where((t) => t.id.equals(transactionId))).write(
+      TransactionsCompanion(
+        subtotalMinor: Value<int>(subtotalMinor),
+        modifierTotalMinor: Value<int>(modifierTotalMinor),
+        totalAmountMinor: Value<int>(subtotalMinor + modifierTotalMinor),
+      ),
+    );
+  }
+
+  static Future<int> _insertPayment(
+    AppDatabase db, {
+    required String uuid,
+    required int transactionId,
+    required String method,
+    required int amountMinor,
+    required DateTime paidAt,
+  }) {
+    return db
+        .into(db.payments)
+        .insert(
+          PaymentsCompanion.insert(
+            uuid: uuid,
+            transactionId: transactionId,
+            method: method,
+            amountMinor: amountMinor,
+            paidAt: Value<DateTime>(paidAt),
           ),
         );
   }

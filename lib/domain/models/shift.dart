@@ -1,4 +1,4 @@
-enum ShiftStatus { open, closed }
+enum ShiftStatus { open, closed, locked }
 
 class Shift {
   const Shift({
@@ -66,17 +66,16 @@ class Shift {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(
-        id,
-        openedBy,
-        openedAt,
-        closedBy,
-        closedAt,
-        cashierPreviewedBy,
-        cashierPreviewedAt,
-        status,
-      );
+  int get hashCode => Object.hash(
+    id,
+    openedBy,
+    openedAt,
+    closedBy,
+    closedAt,
+    cashierPreviewedBy,
+    cashierPreviewedAt,
+    status,
+  );
 }
 
 const Object _unset = Object();

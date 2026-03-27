@@ -76,10 +76,15 @@ class ProductsNotifier extends StateNotifier<ProductsState> {
         isLoading: false,
         errorMessage: null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'catalog_load_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }
@@ -99,10 +104,15 @@ class ProductsNotifier extends StateNotifier<ProductsState> {
         isLoading: false,
         errorMessage: null,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       state = state.copyWith(
         isLoading: false,
-        errorMessage: ErrorMapper.toUserMessage(error),
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'catalog_select_category_failed',
+          stackTrace: stackTrace,
+        ),
       );
     }
   }

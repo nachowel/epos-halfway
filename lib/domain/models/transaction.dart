@@ -1,4 +1,4 @@
-enum TransactionStatus { open, paid, cancelled }
+enum TransactionStatus { draft, sent, paid, cancelled }
 
 class Transaction {
   const Transaction({
@@ -38,6 +38,14 @@ class Transaction {
   final String idempotencyKey;
   final bool kitchenPrinted;
   final bool receiptPrinted;
+
+  bool get isDraft => status == TransactionStatus.draft;
+
+  bool get isSent => status == TransactionStatus.sent;
+
+  bool get isPaid => status == TransactionStatus.paid;
+
+  bool get isCancelled => status == TransactionStatus.cancelled;
 
   Transaction copyWith({
     int? id,

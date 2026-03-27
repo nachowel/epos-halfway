@@ -8,6 +8,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/shift_provider.dart';
+import '../../widgets/language_selector_card.dart';
 import '../../widgets/section_app_bar.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -43,7 +44,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       backgroundColor: AppColors.background,
       appBar: SectionAppBar(
         title: AppStrings.settingsTitle,
-        currentRoute: '/settings',
+        currentRoute: '/admin/settings',
         currentUser: currentUser,
         currentShift: shiftState.currentShift,
         onLogout: () {
@@ -63,17 +64,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Text(
+                Text(
                   AppStrings.visibilityRatioTitle,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: AppSizes.fontMd,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: AppSizes.spacingSm),
-                const Text(
+                Text(
                   AppStrings.visibilityRatioHint,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: AppSizes.fontSm,
                     color: AppColors.textSecondary,
                   ),
@@ -141,12 +142,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text(AppStrings.saveSettings),
+                        : Text(AppStrings.saveSettings),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: AppSizes.spacingMd),
+          const LanguageSelectorCard(),
         ],
       ),
     );

@@ -6,12 +6,17 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../domain/models/authorization_policy.dart';
 import '../../../domain/models/shift.dart';
+import '../../../domain/models/shift_close_readiness.dart';
 import '../../../domain/models/shift_report.dart';
+import '../../../domain/models/user.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/reports_provider.dart';
 import '../../providers/shift_provider.dart';
+import '../../widgets/counted_cash_dialog.dart';
 import '../../widgets/section_app_bar.dart';
 
 final shiftUserNameProvider = FutureProvider.family<String, int>((
@@ -40,17 +45,65 @@ class _ShiftManagementScreenState extends ConsumerState<ShiftManagementScreen> {
     });
   }
 
+  Future<void> _runAction(
+    Future<bool> Function() action,
+    String successMessage,
+  ) async {
+    final bool success = await action();
+    if (!mounted) {
+      return;
+    }
+    final String message = success
+        ? successMessage
+        : (ref.read(shiftNotifierProvider).errorMessage ??
+              AppStrings.operationFailed);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _runFinalCloseWithCountedCash(int expectedCashMinor) async {
+    final int? countedCashMinor = await showDialog<int>(
+      context: context,
+      builder: (_) => CountedCashDialog(expectedCashMinor: expectedCashMinor),
+    );
+    if (countedCashMinor == null || !mounted) {
+      return;
+    }
+    await _runAction(
+      () => ref
+          .read(shiftNotifierProvider.notifier)
+          .finalCloseShift(countedCashMinor: countedCashMinor),
+      AppStrings.finalCloseCompleted,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
     final shiftState = ref.watch(shiftNotifierProvider);
+    final User? currentUser = authState.currentUser;
+    final Shift? backendShift = shiftState.backendOpenShift;
+    final bool hasOpenShift = backendShift != null;
+    final bool canOpenShift = AuthorizationPolicy.canPerform(
+      currentUser,
+      OperatorPermission.openShift,
+    );
+    final bool canLockShift = AuthorizationPolicy.canPerform(
+      currentUser,
+      OperatorPermission.lockShiftForPreviewClose,
+    );
+    final bool canFinalClose = AuthorizationPolicy.canPerform(
+      currentUser,
+      OperatorPermission.finalCloseShift,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: SectionAppBar(
         title: AppStrings.navShifts,
         currentRoute: '/shifts',
-        currentUser: authState.currentUser,
+        currentUser: currentUser,
         currentShift: shiftState.currentShift,
         onLogout: () {
           ref.read(authNotifierProvider.notifier).logout();
@@ -65,71 +118,101 @@ class _ShiftManagementScreenState extends ConsumerState<ShiftManagementScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSizes.spacingMd),
           children: <Widget>[
-            Container(
-              padding: const EdgeInsets.all(AppSizes.spacingMd),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+            if (shiftState.errorMessage != null)
+              _Banner(
+                message: shiftState.errorMessage!,
+                color: AppColors.error,
               ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    AppStrings.shiftMonitorTitle,
-                    style: TextStyle(
-                      fontSize: AppSizes.fontMd,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: AppSizes.spacingSm),
-                  Text(
-                    AppStrings.openShiftFromLogin,
-                    style: TextStyle(
-                      fontSize: AppSizes.fontSm,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  SizedBox(height: AppSizes.spacingXs),
-                  Text(
-                    AppStrings.closeShiftFromZReport,
-                    style: TextStyle(
-                      fontSize: AppSizes.fontSm,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
+            _Banner(
+              message: hasOpenShift
+                  ? (shiftState.effectiveShiftStatus == ShiftStatus.locked
+                        ? AppStrings.salesLockedAdminCloseRequired
+                        : AppStrings.closeShiftConfirmation)
+                  : AppStrings.shiftScreenNoOpenShift,
+              color: hasOpenShift ? AppColors.primary : AppColors.warning,
+            ),
+            _CurrentShiftCard(
+              currentShift: shiftState.currentShift,
+              backendShift: backendShift,
+              onReviewOrders: hasOpenShift ? () => context.go('/orders') : null,
+              onFinalClose: canFinalClose && backendShift != null
+                  ? _runFinalCloseWithCountedCash
+                  : null,
             ),
             const SizedBox(height: AppSizes.spacingMd),
-            _ShiftStatusCard(currentShift: shiftState.backendOpenShift),
-            const SizedBox(height: AppSizes.spacingMd),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: ElevatedButton(
-                onPressed: () => context.go('/reports'),
-                child: const Text(AppStrings.reportsTitle),
-              ),
+            Wrap(
+              spacing: AppSizes.spacingSm,
+              runSpacing: AppSizes.spacingSm,
+              children: <Widget>[
+                ElevatedButton.icon(
+                  onPressed:
+                      !hasOpenShift && !shiftState.isLoading && canOpenShift
+                      ? () => _runAction(
+                          () => ref
+                              .read(shiftNotifierProvider.notifier)
+                              .openShift(),
+                          AppStrings.shiftOpened,
+                        )
+                      : null,
+                  icon: const Icon(Icons.play_circle_outline_rounded),
+                  label: Text(AppStrings.openShiftAction),
+                ),
+                ElevatedButton.icon(
+                  onPressed:
+                      hasOpenShift &&
+                          canLockShift &&
+                          !shiftState.cashierPreviewActive &&
+                          !shiftState.isLoading
+                      ? () => _runAction(
+                          () => ref
+                              .read(shiftNotifierProvider.notifier)
+                              .lockShift(),
+                          AppStrings.shiftLockedMessage,
+                        )
+                      : null,
+                  icon: const Icon(Icons.lock_outline_rounded),
+                  label: Text(AppStrings.closeShiftAction),
+                ),
+                ElevatedButton.icon(
+                  onPressed:
+                      hasOpenShift && canFinalClose && !shiftState.isLoading
+                      ? () async {
+                          final ShiftReport? report = ref
+                              .read(visibleShiftReportProvider(backendShift.id))
+                              .valueOrNull;
+                          if (report == null) {
+                            return;
+                          }
+                          await _runFinalCloseWithCountedCash(
+                            report.cashTotalMinor,
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.lock_clock_outlined),
+                  label: Text(AppStrings.adminFinalClose),
+                ),
+              ],
             ),
             const SizedBox(height: AppSizes.spacingLg),
-            const Text(
+            Text(
               AppStrings.recentShifts,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: AppSizes.fontMd,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: AppSizes.spacingMd),
             if (shiftState.recentShifts.isEmpty)
-              const Text(
+              Text(
                 AppStrings.noShiftHistory,
-                style: TextStyle(
-                  fontSize: AppSizes.fontSm,
-                  color: AppColors.textSecondary,
-                ),
+                style: const TextStyle(color: AppColors.textSecondary),
               )
             else
               ...shiftState.recentShifts.map(
-                (Shift shift) => _RecentShiftTile(shift: shift),
+                (Shift shift) => Padding(
+                  padding: const EdgeInsets.only(bottom: AppSizes.spacingSm),
+                  child: _ShiftListTile(shift: shift),
+                ),
               ),
           ],
         ),
@@ -138,96 +221,211 @@ class _ShiftManagementScreenState extends ConsumerState<ShiftManagementScreen> {
   }
 }
 
-class _ShiftStatusCard extends ConsumerWidget {
-  const _ShiftStatusCard({required this.currentShift});
+class _CurrentShiftCard extends ConsumerWidget {
+  const _CurrentShiftCard({
+    required this.currentShift,
+    required this.backendShift,
+    required this.onReviewOrders,
+    required this.onFinalClose,
+  });
 
   final Shift? currentShift;
+  final Shift? backendShift;
+  final VoidCallback? onReviewOrders;
+  final Future<void> Function(int expectedCashMinor)? onFinalClose;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (currentShift == null) {
+    if (backendShift == null) {
       return Container(
-        padding: const EdgeInsets.all(AppSizes.spacingMd),
+        padding: const EdgeInsets.all(AppSizes.spacingLg),
         decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
-          borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+          border: Border.all(color: AppColors.border),
         ),
-        child: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              AppStrings.shiftClosed,
-              style: TextStyle(
-                fontSize: AppSizes.fontLg,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            SizedBox(height: AppSizes.spacingSm),
-            Text(AppStrings.noBusinessShift),
-          ],
+        child: Text(
+          AppStrings.shiftScreenNoOpenShift,
+          style: const TextStyle(color: AppColors.textSecondary),
         ),
       );
     }
 
-    final AsyncValue<String> openedByAsync = ref.watch(
-      shiftUserNameProvider(currentShift!.openedBy),
+    final AsyncValue<String> openedBy = ref.watch(
+      shiftUserNameProvider(backendShift!.openedBy),
     );
-    final AsyncValue<String> cashierPreviewByAsync =
-        currentShift!.cashierPreviewedBy == null
+    final AsyncValue<String> closedBy = backendShift!.closedBy == null
         ? const AsyncValue<String>.data('-')
-        : ref.watch(shiftUserNameProvider(currentShift!.cashierPreviewedBy!));
-    final AsyncValue<ShiftReport> reportAsync = ref.watch(
-      rawShiftReportProvider(currentShift!.id),
+        : ref.watch(shiftUserNameProvider(backendShift!.closedBy!));
+    final AsyncValue<ShiftReport> report = ref.watch(
+      visibleShiftReportProvider(backendShift!.id),
+    );
+    final AsyncValue<ShiftCloseReadiness> closeReadiness = ref.watch(
+      shiftCloseReadinessProvider(backendShift!.id),
     );
 
     return Container(
-      padding: const EdgeInsets.all(AppSizes.spacingMd),
+      padding: const EdgeInsets.all(AppSizes.spacingLg),
       decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '${AppStrings.currentBusinessShift}: ${AppStrings.openShiftLabel(currentShift!.id)}',
+            AppStrings.currentShiftSummary,
             style: const TextStyle(
-              fontSize: AppSizes.fontLg,
+              fontSize: AppSizes.fontMd,
               fontWeight: FontWeight.w800,
-              color: AppColors.success,
             ),
           ),
-          const SizedBox(height: AppSizes.spacingSm),
-          Text(
-            '${AppStrings.openedAt}: ${DateFormatter.formatDefault(currentShift!.openedAt)}',
+          const SizedBox(height: AppSizes.spacingMd),
+          _DetailRow(
+            label: AppStrings.shiftIdLabel,
+            value: '${backendShift!.id}',
           ),
-          Text(
-            '${AppStrings.openedBy}: ${openedByAsync.valueOrNull ?? AppStrings.unknownUser}',
-          ),
-          Text(
-            currentShift!.cashierPreviewedAt == null
-                ? AppStrings.cashierPreviewPending
-                : '${AppStrings.cashierPreviewedAt}: ${DateFormatter.formatDefault(currentShift!.cashierPreviewedAt!)}',
-          ),
-          if (currentShift!.cashierPreviewedAt != null)
-            Text(
-              '${AppStrings.cashierPreviewedBy}: ${cashierPreviewByAsync.valueOrNull ?? AppStrings.unknownUser}',
+          _DetailRow(
+            label: AppStrings.orderStatusLabel,
+            value: AppStrings.shiftStatusText(
+              currentShift?.status ?? backendShift!.status,
             ),
-          const SizedBox(height: AppSizes.spacingSm),
-          reportAsync.when(
-            data: (ShiftReport report) {
+            emphasize: currentShift?.status == ShiftStatus.locked,
+          ),
+          _DetailRow(
+            label: AppStrings.openedAt,
+            value: DateFormatter.formatDefault(backendShift!.openedAt),
+          ),
+          _DetailRow(
+            label: AppStrings.closedAt,
+            value: backendShift!.closedAt == null
+                ? AppStrings.none
+                : DateFormatter.formatDefault(backendShift!.closedAt!),
+          ),
+          _DetailRow(
+            label: AppStrings.openedBy,
+            value: openedBy.valueOrNull ?? AppStrings.loading,
+          ),
+          _DetailRow(
+            label: AppStrings.closedBy,
+            value: closedBy.valueOrNull ?? AppStrings.loading,
+          ),
+          const SizedBox(height: AppSizes.spacingMd),
+          closeReadiness.when(
+            data: (ShiftCloseReadiness readiness) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _DetailRow(
+                    label: AppStrings.sentOrdersPendingLabel,
+                    value: '${readiness.sentOrderCount}',
+                    emphasize: readiness.sentOrderCount > 0,
+                  ),
+                  _DetailRow(
+                    label: AppStrings.freshDraftsPendingLabel,
+                    value: '${readiness.freshDraftCount}',
+                    emphasize: readiness.freshDraftCount > 0,
+                  ),
+                  _DetailRow(
+                    label: AppStrings.staleDraftsPendingLabel,
+                    value: '${readiness.staleDraftCount}',
+                    emphasize: readiness.staleDraftCount > 0,
+                  ),
+                  if (readiness.hasStaleDrafts)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSizes.spacingSm),
+                      child: Text(
+                        AppStrings.staleDraftCloseHelp,
+                        style: const TextStyle(
+                          fontSize: AppSizes.fontSm,
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (!readiness.canFinalClose && onReviewOrders != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSizes.spacingSm),
+                      child: TextButton(
+                        onPressed: onReviewOrders,
+                        child: Text(AppStrings.goToOpenOrders),
+                      ),
+                    ),
+                  const SizedBox(height: AppSizes.spacingMd),
+                ],
+              );
+            },
+            loading: () => const Padding(
+              padding: EdgeInsets.only(bottom: AppSizes.spacingMd),
+              child: CircularProgressIndicator(),
+            ),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+          report.when(
+            data: (ShiftReport shiftReport) {
               return Wrap(
                 spacing: AppSizes.spacingLg,
                 runSpacing: AppSizes.spacingSm,
                 children: <Widget>[
-                  Text('${AppStrings.paidOrders}: ${report.paidCount}'),
-                  Text('${AppStrings.openOrdersTitle}: ${report.openCount}'),
-                  Text('${AppStrings.cancelledOrders}: ${report.cancelledCount}'),
+                  Text('${AppStrings.paidOrders}: ${shiftReport.paidCount}'),
+                  Text(
+                    '${AppStrings.cancelledOrders}: ${shiftReport.cancelledCount}',
+                  ),
+                  _DetailRow(
+                    label: AppStrings.expectedCash,
+                    value: CurrencyFormatter.fromMinor(
+                      shiftReport.cashTotalMinor,
+                    ),
+                  ),
+                  _DetailRow(
+                    label: AppStrings.grossSales,
+                    value: CurrencyFormatter.fromMinor(
+                      shiftReport.paidTotalMinor,
+                    ),
+                  ),
+                  _DetailRow(
+                    label: AppStrings.refundTotal,
+                    value: CurrencyFormatter.fromMinor(
+                      shiftReport.refundTotalMinor,
+                    ),
+                  ),
+                  _DetailRow(
+                    label: AppStrings.netSales,
+                    value: CurrencyFormatter.fromMinor(
+                      shiftReport.netSalesMinor,
+                    ),
+                  ),
+                  Text(
+                    '${AppStrings.grossCash}: ${CurrencyFormatter.fromMinor(shiftReport.cashGrossTotalMinor)}',
+                  ),
+                  Text(
+                    '${AppStrings.netCash}: ${CurrencyFormatter.fromMinor(shiftReport.cashTotalMinor)}',
+                  ),
+                  Text(
+                    '${AppStrings.grossCard}: ${CurrencyFormatter.fromMinor(shiftReport.cardGrossTotalMinor)}',
+                  ),
+                  Text(
+                    '${AppStrings.netCard}: ${CurrencyFormatter.fromMinor(shiftReport.cardTotalMinor)}',
+                  ),
+                  if (onFinalClose != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSizes.spacingSm),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton(
+                          onPressed: () => onFinalClose!(
+                            shiftReport.cashTotalMinor,
+                          ),
+                          child: Text(AppStrings.enterCountedCashAction),
+                        ),
+                      ),
+                    ),
                 ],
               );
             },
             loading: () => const CircularProgressIndicator(),
-            error: (_, __) => const SizedBox.shrink(),
+            error: (_, __) => Text(AppStrings.noReportData),
           ),
         ],
       ),
@@ -235,62 +433,111 @@ class _ShiftStatusCard extends ConsumerWidget {
   }
 }
 
-class _RecentShiftTile extends ConsumerWidget {
-  const _RecentShiftTile({required this.shift});
+class _ShiftListTile extends ConsumerWidget {
+  const _ShiftListTile({required this.shift});
 
   final Shift shift;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reportAsync = ref.watch(rawShiftReportProvider(shift.id));
-    final openedByAsync = ref.watch(shiftUserNameProvider(shift.openedBy));
-    final closedByAsync = shift.closedBy == null
-        ? const AsyncValue<String>.data(AppStrings.unknownUser)
+    final AsyncValue<String> openedBy = ref.watch(
+      shiftUserNameProvider(shift.openedBy),
+    );
+    final AsyncValue<String> closedBy = shift.closedBy == null
+        ? const AsyncValue<String>.data('-')
         : ref.watch(shiftUserNameProvider(shift.closedBy!));
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: AppSizes.spacingSm),
-      child: ListTile(
-        title: Text(
-          '${DateFormatter.formatDefault(shift.openedAt)} - ${shift.closedAt == null ? '-' : DateFormatter.formatDefault(shift.closedAt!)}',
-          style: const TextStyle(
-            fontSize: AppSizes.fontSm,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              '${AppStrings.openedBy}: ${openedByAsync.valueOrNull ?? AppStrings.unknownUser}',
-            ),
-            Text(
-              '${AppStrings.closedBy}: ${closedByAsync.valueOrNull ?? AppStrings.unknownUser}',
-            ),
-            reportAsync.when(
-              data: (ShiftReport report) {
-                return Text('${AppStrings.paidOrders}: ${report.paidCount}');
-              },
-              loading: () => const Text(AppStrings.loading),
-              error: (_, __) => const Text('-'),
-            ),
-          ],
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSizes.spacingSm,
-            vertical: AppSizes.spacingXs,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceMuted,
-            borderRadius: BorderRadius.circular(AppSizes.radiusSm),
-          ),
-          child: const Text(
-            AppStrings.statusClosed,
-            style: TextStyle(fontSize: AppSizes.fontSm),
-          ),
-        ),
+    return Container(
+      padding: const EdgeInsets.all(AppSizes.spacingMd),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        border: Border.all(color: AppColors.border),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _DetailRow(label: AppStrings.shiftIdLabel, value: '${shift.id}'),
+          _DetailRow(
+            label: AppStrings.orderStatusLabel,
+            value: AppStrings.shiftStatusText(shift.status),
+          ),
+          _DetailRow(
+            label: AppStrings.openedAt,
+            value: DateFormatter.formatDefault(shift.openedAt),
+          ),
+          _DetailRow(
+            label: AppStrings.closedAt,
+            value: shift.closedAt == null
+                ? AppStrings.none
+                : DateFormatter.formatDefault(shift.closedAt!),
+          ),
+          _DetailRow(
+            label: AppStrings.openedBy,
+            value: openedBy.valueOrNull ?? AppStrings.loading,
+          ),
+          _DetailRow(
+            label: AppStrings.closedBy,
+            value: closedBy.valueOrNull ?? AppStrings.loading,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSizes.spacingXs),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
+              color: emphasize ? AppColors.warning : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({required this.message, required this.color});
+
+  final String message;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSizes.spacingMd),
+      padding: const EdgeInsets.all(AppSizes.spacingMd),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+      ),
+      child: Text(message, style: TextStyle(color: color)),
     );
   }
 }
