@@ -161,6 +161,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cart => 'Cart';
 
   @override
+  String get checkout => 'Checkout';
+
+  @override
   String get emptyCart => 'Cart empty — add items';
 
   @override
@@ -177,6 +180,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get payNow => 'Pay Now';
+
+  @override
+  String get payAction => 'Pay';
+
+  @override
+  String get saveAsOpenOrder => 'Save as Open Order';
 
   @override
   String get clear => 'Clear';

@@ -7,15 +7,16 @@ import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
-import '../../../domain/models/draft_order_policy.dart';
 import '../../../domain/models/interaction_block_reason.dart';
 import '../../../domain/models/open_order_summary.dart';
+import '../../../domain/models/order_payment_policy.dart';
+import '../../../domain/models/payment.dart';
 import '../../../domain/models/transaction.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/orders_provider.dart';
 import '../../providers/shift_provider.dart';
-import '../../widgets/order_status_chip.dart';
 import '../../widgets/section_app_bar.dart';
+import '../pos/widgets/payment_dialog.dart';
 
 class OpenOrdersScreen extends ConsumerStatefulWidget {
   const OpenOrdersScreen({super.key});
@@ -83,7 +84,7 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
               ),
             if (ordersState.openOrderSummaries.isEmpty)
               Padding(
-                padding: EdgeInsets.only(top: 160),
+                padding: const EdgeInsets.only(top: 160),
                 child: Center(
                   child: Text(
                     AppStrings.noOpenOrders,
@@ -95,72 +96,55 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                 ),
               )
             else
-              ...ordersState.openOrderSummaries.map((OpenOrderSummary summary) {
-                final Transaction order = summary.transaction;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: AppSizes.spacingSm),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(AppSizes.spacingMd),
-                    title: Text(
-                      '${AppStrings.orderNumber(order.id)} · ${DateFormatter.formatTime(order.createdAt)} · ${summary.shortContent}',
-                      style: const TextStyle(
-                        fontSize: AppSizes.fontSm,
-                        fontWeight: FontWeight.w700,
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  children: <Widget>[
+                    for (
+                      int index = 0;
+                      index < ordersState.openOrderSummaries.length;
+                      index++
+                    ) ...<Widget>[
+                      if (index > 0)
+                        const Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: AppColors.border,
+                        ),
+                      Builder(
+                        builder: (BuildContext context) {
+                          final OpenOrderSummary summary =
+                              ordersState.openOrderSummaries[index];
+                          final Transaction order = summary.transaction;
+                          final OrderPaymentEligibility paymentEligibility =
+                              OrderPaymentPolicy.resolve(
+                                user: authState.currentUser,
+                                transaction: order,
+                                activeShift: shiftState.backendOpenShift,
+                                paymentsLocked: shiftState.paymentsLocked,
+                                lockReason: orderLockReason,
+                              );
+
+                          return _OpenOrderRow(
+                            summary: summary,
+                            isPayEnabled:
+                                paymentEligibility.isAllowed &&
+                                !ordersState.isPaymentLoading,
+                            isPayBusy: ordersState.isPaymentLoading,
+                            onTap: () => context.push('/orders/${order.id}'),
+                            onPay: () =>
+                                _handlePayment(summary, paymentEligibility),
+                          );
+                        },
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: AppSizes.spacingXs),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          if (order.tableNumber != null)
-                            Text(
-                              '${AppStrings.table}: ${order.tableNumber}',
-                              style: const TextStyle(
-                                fontSize: AppSizes.fontSm,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          Text(
-                            '${AppStrings.total}: ${CurrencyFormatter.fromMinor(order.totalAmountMinor)}',
-                            style: const TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          Text(
-                            '${AppStrings.orderStatusLabel}: ${AppStrings.orderStatusText(order.status, isStaleDraft: DraftOrderPolicy.isStale(order))}',
-                            style: TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: order.isPaid
-                                  ? AppColors.success
-                                  : order.isCancelled
-                                  ? AppColors.error
-                                  : DraftOrderPolicy.isStale(order)
-                                  ? AppColors.warning
-                                  : AppColors.textSecondary,
-                              fontWeight:
-                                  order.isPaid ||
-                                      order.isCancelled ||
-                                      DraftOrderPolicy.isStale(order)
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    trailing: OrderStatusChip(
-                      status: order.status,
-                      updatedAt: order.updatedAt,
-                      compact: true,
-                    ),
-                    onTap: () => context.push('/orders/${order.id}'),
-                  ),
-                );
-              }),
+                    ],
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -172,5 +156,199 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
         child: const Icon(Icons.refresh),
       ),
     );
+  }
+
+  Future<void> _handlePayment(
+    OpenOrderSummary summary,
+    OrderPaymentEligibility paymentEligibility,
+  ) async {
+    final Transaction order = summary.transaction;
+    final bool? result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return PaymentDialog(
+          totalAmountMinor: order.totalAmountMinor,
+          isSubmissionBlocked: !paymentEligibility.isAllowed,
+          blockedMessage: paymentEligibility.blockedMessage,
+          onSubmit: (PaymentMethod paymentMethod) async {
+            final currentUser = ref.read(authNotifierProvider).currentUser;
+            if (currentUser == null) {
+              return AppStrings.accessDenied;
+            }
+            final bool success = await ref
+                .read(ordersNotifierProvider.notifier)
+                .payOrder(
+                  transactionId: order.id,
+                  method: paymentMethod,
+                  currentUser: currentUser,
+                );
+            if (success) {
+              return null;
+            }
+            return ref.read(ordersNotifierProvider).errorMessage ??
+                AppStrings.paymentFailedOrderOpen;
+          },
+        );
+      },
+    );
+
+    if (!mounted || result != true) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(AppStrings.paymentCompleted)));
+  }
+}
+
+class _OpenOrderRow extends StatelessWidget {
+  const _OpenOrderRow({
+    required this.summary,
+    required this.isPayEnabled,
+    required this.isPayBusy,
+    required this.onTap,
+    required this.onPay,
+  });
+
+  final OpenOrderSummary summary;
+  final bool isPayEnabled;
+  final bool isPayBusy;
+  final VoidCallback onTap;
+  final VoidCallback onPay;
+
+  @override
+  Widget build(BuildContext context) {
+    final Transaction order = summary.transaction;
+    final String totalLabel = CurrencyFormatter.fromMinor(
+      order.totalAmountMinor,
+    );
+    final String payLabel = '${AppStrings.payAction} $totalLabel';
+    final String itemCountLabel =
+        '${summary.itemCount} ${AppStrings.itemCount.toLowerCase()}';
+    final String contentSummary = _itemNamesOnly(summary.shortContent);
+    final String metadataLine =
+        '${DateFormatter.formatTime(order.createdAt)} · $itemCountLabel · $contentSummary';
+
+    return Material(
+      color: AppColors.surface,
+      child: InkWell(
+        key: Key('open-order-row-${order.id}'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      AppStrings.orderNumber(order.id),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        height: 1.05,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      metadataLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 156,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      totalLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        height: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        key: Key('open-order-pay-${order.id}'),
+                        onPressed: isPayEnabled ? onPay : null,
+                        icon: isPayBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.surface,
+                                  ),
+                                ),
+                              )
+                            : const Icon(Icons.arrow_forward_rounded, size: 18),
+                        label: Text(
+                          payLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.surface,
+                          disabledBackgroundColor: AppColors.surfaceMuted
+                              .withValues(alpha: 0.95),
+                          disabledForegroundColor: AppColors.textSecondary,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            height: 1.05,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _itemNamesOnly(String summaryText) {
+    return summaryText
+        .split(',')
+        .map(
+          (String segment) =>
+              segment.replaceFirst(RegExp(r'^\s*\d+\s+'), '').trim(),
+        )
+        .where((String segment) => segment.isNotEmpty)
+        .join(', ');
   }
 }

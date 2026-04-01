@@ -162,6 +162,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get cart => 'Sepet';
 
   @override
+  String get checkout => 'Ödeme';
+
+  @override
   String get emptyCart => 'Sepet boş — ürün ekleyin';
 
   @override
@@ -178,6 +181,12 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get payNow => 'Şimdi Öde';
+
+  @override
+  String get payAction => 'Öde';
+
+  @override
+  String get saveAsOpenOrder => 'Açık Sipariş Olarak Kaydet';
 
   @override
   String get clear => 'Temizle';

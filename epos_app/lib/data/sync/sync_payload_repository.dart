@@ -1,11 +1,18 @@
 import 'package:drift/drift.dart';
 
 import '../database/app_database.dart' as db;
+import 'phase1_sync_contract.dart';
+import 'phase1_sync_payload_mapper.dart';
+import 'sync_transaction_graph.dart';
 
 class SyncPayloadRepository {
-  const SyncPayloadRepository(this._database);
+  const SyncPayloadRepository(
+    this._database, {
+    Phase1SyncPayloadMapper payloadMapper = const Phase1SyncPayloadMapper(),
+  }) : _payloadMapper = payloadMapper;
 
   final db.AppDatabase _database;
+  final Phase1SyncPayloadMapper _payloadMapper;
 
   Future<String?> resolveTransactionUuid({
     required String tableName,
@@ -93,8 +100,10 @@ class SyncPayloadRepository {
     if (transaction == null) {
       return null;
     }
-    if (transaction.status == 'draft' || transaction.status == 'sent') {
-      throw StateError('Only terminal transactions may be synced.');
+    // Local truth is created and finalized in Drift. The remote mirror accepts
+    // only finalized snapshots, never local in-progress order state.
+    if (!Phase1SyncContract.isTerminalTransactionStatus(transaction.status)) {
+      throw StateError('Only finalized local transactions may be mirrored.');
     }
 
     final Map<String, Object?> transactionPayload =
@@ -236,23 +245,7 @@ class SyncPayloadRepository {
       return null;
     }
 
-    return <String, Object?>{
-      'uuid': row.uuid,
-      'shift_local_id': row.shiftId,
-      'user_local_id': row.userId,
-      'table_number': row.tableNumber,
-      'status': row.status,
-      'subtotal_minor': row.subtotalMinor,
-      'modifier_total_minor': row.modifierTotalMinor,
-      'total_amount_minor': row.totalAmountMinor,
-      'created_at': row.createdAt.toUtc().toIso8601String(),
-      'paid_at': row.paidAt?.toUtc().toIso8601String(),
-      'updated_at': row.updatedAt.toUtc().toIso8601String(),
-      'cancelled_at': row.cancelledAt?.toUtc().toIso8601String(),
-      'cancelled_by_local_id': row.cancelledBy,
-      'kitchen_printed': row.kitchenPrinted,
-      'receipt_printed': row.receiptPrinted,
-    };
+    return _payloadMapper.transactionPayload(row);
   }
 
   Future<Map<String, Object?>?> _buildTransactionLinePayload(
@@ -275,15 +268,10 @@ class SyncPayloadRepository {
       return null;
     }
 
-    return <String, Object?>{
-      'uuid': row.uuid,
-      'transaction_uuid': transaction.uuid,
-      'product_local_id': row.productId,
-      'product_name': row.productName,
-      'unit_price_minor': row.unitPriceMinor,
-      'quantity': row.quantity,
-      'line_total_minor': row.lineTotalMinor,
-    };
+    return _payloadMapper.transactionLinePayload(
+      row: row,
+      transactionUuid: transaction.uuid,
+    );
   }
 
   Future<Map<String, Object?>?> _buildOrderModifierPayload(String uuid) async {
@@ -305,13 +293,10 @@ class SyncPayloadRepository {
       return null;
     }
 
-    return <String, Object?>{
-      'uuid': row.uuid,
-      'transaction_line_uuid': line.uuid,
-      'action': row.action,
-      'item_name': row.itemName,
-      'extra_price_minor': row.extraPriceMinor,
-    };
+    return _payloadMapper.orderModifierPayload(
+      row: row,
+      transactionLineUuid: line.uuid,
+    );
   }
 
   Future<Map<String, Object?>?> _buildPaymentPayload(String uuid) async {
@@ -331,41 +316,9 @@ class SyncPayloadRepository {
       return null;
     }
 
-    return <String, Object?>{
-      'uuid': row.uuid,
-      'transaction_uuid': transaction.uuid,
-      'method': row.method,
-      'amount_minor': row.amountMinor,
-      'paid_at': row.paidAt.toUtc().toIso8601String(),
-    };
+    return _payloadMapper.paymentPayload(
+      row: row,
+      transactionUuid: transaction.uuid,
+    );
   }
-}
-
-class SyncTransactionGraph {
-  const SyncTransactionGraph({
-    required this.transactionUuid,
-    required this.transactionIdempotencyKey,
-    required this.records,
-  });
-
-  final String transactionUuid;
-  final String transactionIdempotencyKey;
-  final List<SyncGraphRecord> records;
-}
-
-class SyncGraphRecord {
-  const SyncGraphRecord({
-    required this.tableName,
-    required this.recordUuid,
-    required this.payload,
-    required this.idempotencyKey,
-  });
-
-  final String tableName;
-  final String recordUuid;
-  final Map<String, Object?> payload;
-  final String idempotencyKey;
-
-  ({String tableName, String recordUuid}) get queueRef =>
-      (tableName: tableName, recordUuid: recordUuid);
 }

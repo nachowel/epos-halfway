@@ -16,6 +16,16 @@ class AppSizes {
   static const double fontLg = 22;
 
   static const double minTouch = 80;
-  static const double cartPanelWidth = 420;
+  static const double cartPanelWidth = 376;
+  static const double cartPanelMinWidth = 264;
   static const double topBarHeight = 88;
+
+  static double responsiveCartPanelWidth(double viewportWidth) {
+    final double ratio = viewportWidth >= 1400
+        ? 0.24
+        : (viewportWidth >= 1100 ? 0.235 : 0.22);
+    final double minWidth = viewportWidth >= 1100 ? 280 : cartPanelMinWidth;
+
+    return (viewportWidth * ratio).clamp(minWidth, cartPanelWidth).toDouble();
+  }
 }

@@ -15,49 +15,132 @@ void main() {
   });
 
   testWidgets(
+    'cash field is read-only, numeric-display only, and prefilled with exact total',
+    (WidgetTester tester) async {
+      await _pumpPaymentDialog(tester: tester, totalAmountMinor: 2880);
+
+      final TextField field = _receivedAmountField(tester);
+      expect(field.readOnly, isTrue);
+      expect(field.keyboardType, TextInputType.none);
+      expect(field.enableInteractiveSelection, isFalse);
+      expect(field.controller!.text, '28.80');
+    },
+  );
+
+  testWidgets('quick cash presets use rounded cashier-friendly values', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 2880);
+
+    expect(find.byKey(const ValueKey<String>('quick-cash-exact')), findsOne);
+    expect(find.text('£30'), findsOneWidget);
+    expect(find.text('£40'), findsOneWidget);
+    expect(find.text('£50'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('cash-helper-clear')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('card mode hides cash entry controls entirely', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPaymentDialog(
+      tester: tester,
+      totalAmountMinor: 1450,
+      initialPaymentMethod: PaymentMethod.card,
+    );
+
+    expect(_receivedAmountFieldFinder, findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('payment-keypad-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('quick-cash-exact')),
+      findsNothing,
+    );
+    expect(find.textContaining('Insufficient by'), findsNothing);
+    expect(find.textContaining('${AppStrings.change}:'), findsNothing);
+  });
+
+  testWidgets('card mode uses large vertical pay and cancel actions', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPaymentDialog(
+      tester: tester,
+      totalAmountMinor: 2810,
+      initialPaymentMethod: PaymentMethod.card,
+    );
+
+    final Size paySize = tester.getSize(_payButtonFinder);
+    final Size cancelSize = tester.getSize(
+      find.byKey(const ValueKey<String>('payment-cancel')),
+    );
+
+    expect(paySize.height, 64);
+    expect(cancelSize.height, 56);
+    expect(find.byIcon(Icons.credit_card_rounded), findsOneWidget);
+  });
+
+  testWidgets(
+    'cash keypad and helper actions update amount without text entry',
+    (WidgetTester tester) async {
+      await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
+
+      await _tapVisibleKey(tester, 'payment-keypad-2');
+      await _tapVisibleKey(tester, 'payment-keypad-0');
+
+      expect(_receivedAmountField(tester).controller!.text, '20');
+      expect(find.text('Change: £5.50'), findsOneWidget);
+
+      await tester.tap(find.text('£30'));
+      await tester.pump();
+
+      expect(_receivedAmountField(tester).controller!.text, '30.00');
+      expect(find.text('Change: £15.50'), findsOneWidget);
+    },
+  );
+
+  testWidgets('insufficient cash state disables pay until enough is entered', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
+
+    await _tapVisibleKey(tester, 'payment-keypad-1');
+    await _tapVisibleKey(tester, 'payment-keypad-0');
+
+    expect(_receivedAmountField(tester).controller!.text, '10');
+    expect(find.text('Insufficient by £4.50'), findsOneWidget);
+    expect(_payButton(tester).onPressed, isNull);
+
+    await _tapVisibleText(tester, '£20');
+
+    expect(_receivedAmountField(tester).controller!.text, '20.00');
+    expect(find.text('Change: £5.50'), findsOneWidget);
+    expect(_payButton(tester).onPressed, isNotNull);
+  });
+
+  testWidgets(
     'payment dialog disables pay action during submission to prevent double tap',
     (WidgetTester tester) async {
       final Completer<String?> completer = Completer<String?>();
       int submissionCount = 0;
 
-      await tester.pumpWidget(
-        _testApp(
-          child: Builder(
-            builder: (BuildContext context) {
-              return ElevatedButton(
-                onPressed: () {
-                  showDialog<bool>(
-                    context: context,
-                    builder: (_) => PaymentDialog(
-                      totalAmountMinor: 500,
-                      onSubmit: (PaymentMethod method) {
-                        submissionCount += 1;
-                        return completer.future;
-                      },
-                    ),
-                  );
-                },
-                child: const Text('open'),
-              );
-            },
-          ),
-        ),
+      await _pumpPaymentDialog(
+        tester: tester,
+        totalAmountMinor: 500,
+        initialPaymentMethod: PaymentMethod.card,
+        onSubmit: (_) {
+          submissionCount += 1;
+          return completer.future;
+        },
       );
 
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-      final Finder submitButtonFinder = find.widgetWithText(
-        ElevatedButton,
-        AppStrings.pay,
-      );
-      await tester.ensureVisible(submitButtonFinder);
-      await tester.tap(submitButtonFinder);
+      final Finder payButtonFinder = _payButtonFinder;
+      await tester.tap(payButtonFinder);
       await tester.pump();
 
-      final Finder payButtonFinder = find.descendant(
-        of: find.byType(Dialog),
-        matching: find.byType(ElevatedButton),
-      );
       final ElevatedButton payButton = tester.widget<ElevatedButton>(
         payButtonFinder,
       );
@@ -77,93 +160,6 @@ void main() {
       expect(find.byType(PaymentDialog), findsNothing);
     },
   );
-
-  testWidgets('quick cash buttons are visible in cash mode', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
-
-    expect(find.text('Exact'), findsOneWidget);
-    expect(find.text('£15'), findsOneWidget);
-    expect(find.text('£20'), findsOneWidget);
-    expect(find.text('£30'), findsOneWidget);
-    expect(find.text('£40'), findsOneWidget);
-    expect(find.text('£50'), findsOneWidget);
-    expect(_receivedAmountFieldFinder, findsOneWidget);
-  });
-
-  testWidgets('quick cash buttons include rounded-up value based on total', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 2250);
-
-    expect(find.text('£25'), findsOneWidget);
-    expect(find.text('£20'), findsNothing);
-    expect(find.text('£30'), findsOneWidget);
-    expect(find.text('£40'), findsOneWidget);
-    expect(find.text('£50'), findsOneWidget);
-  });
-
-  testWidgets('quick cash buttons are hidden in card mode', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
-
-    await tester.tap(find.text(AppStrings.card));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Exact'), findsNothing);
-    expect(find.text('£15'), findsNothing);
-    expect(find.text('£20'), findsNothing);
-    expect(find.text('£30'), findsNothing);
-    expect(find.text('£40'), findsNothing);
-    expect(find.text('£50'), findsNothing);
-    expect(_receivedAmountFieldFinder, findsNothing);
-  });
-
-  testWidgets('Exact replaces received amount with total', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
-
-    await tester.enterText(_receivedAmountFieldFinder, '30.00');
-    await tester.pump();
-    await tester.tap(find.text('Exact'));
-    await tester.pump();
-
-    expect(_receivedAmountField(tester).controller!.text, '14.50');
-    expect(find.text('Change: £0.00'), findsOneWidget);
-  });
-
-  testWidgets('tapping quick cash buttons updates change immediately', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
-
-    await tester.tap(find.text('£20'));
-    await tester.pump();
-
-    expect(_receivedAmountField(tester).controller!.text, '20.00');
-    expect(find.text('Change: £5.50'), findsOneWidget);
-  });
-
-  testWidgets('submit state updates correctly after quick button selection', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPaymentDialog(tester: tester, totalAmountMinor: 1450);
-
-    await tester.enterText(_receivedAmountFieldFinder, '10.00');
-    await tester.pump();
-
-    expect(_payButton(tester).onPressed, isNull);
-
-    await tester.tap(find.text('£15'));
-    await tester.pump();
-
-    expect(_receivedAmountField(tester).controller!.text, '15.00');
-    expect(find.text('Change: £0.50'), findsOneWidget);
-    expect(_payButton(tester).onPressed, isNotNull);
-  });
 }
 
 Widget _testApp({required Widget child}) {
@@ -183,8 +179,11 @@ Widget _testApp({required Widget child}) {
 Future<void> _pumpPaymentDialog({
   required WidgetTester tester,
   required int totalAmountMinor,
+  PaymentMethod initialPaymentMethod = PaymentMethod.cash,
   PaymentSubmitCallback? onSubmit,
 }) async {
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.binding.setSurfaceSize(const Size(900, 1100));
   await tester.pumpWidget(
     _testApp(
       child: Builder(
@@ -195,6 +194,7 @@ Future<void> _pumpPaymentDialog({
                 context: context,
                 builder: (_) => PaymentDialog(
                   totalAmountMinor: totalAmountMinor,
+                  initialPaymentMethod: initialPaymentMethod,
                   onSubmit: onSubmit ?? (_) async => null,
                 ),
               );
@@ -217,9 +217,23 @@ final Finder _receivedAmountFieldFinder = find.byKey(
 TextField _receivedAmountField(WidgetTester tester) =>
     tester.widget<TextField>(_receivedAmountFieldFinder);
 
-ElevatedButton _payButton(WidgetTester tester) => tester.widget<ElevatedButton>(
-  find.descendant(
-    of: find.byType(Dialog),
-    matching: find.widgetWithText(ElevatedButton, AppStrings.pay),
-  ),
+final Finder _payButtonFinder = find.byKey(
+  const ValueKey<String>('payment-submit'),
 );
+
+ElevatedButton _payButton(WidgetTester tester) =>
+    tester.widget<ElevatedButton>(_payButtonFinder);
+
+Future<void> _tapVisibleKey(WidgetTester tester, String keyValue) async {
+  final Finder finder = find.byKey(ValueKey<String>(keyValue));
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
+  await tester.pump();
+}
+
+Future<void> _tapVisibleText(WidgetTester tester, String text) async {
+  final Finder finder = find.text(text).last;
+  await tester.ensureVisible(finder);
+  await tester.tap(finder);
+  await tester.pump();
+}

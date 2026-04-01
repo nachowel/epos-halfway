@@ -398,6 +398,12 @@ abstract class AppLocalizations {
   /// **'Cart'**
   String get cart;
 
+  /// No description provided for @checkout.
+  ///
+  /// In en, this message translates to:
+  /// **'Checkout'**
+  String get checkout;
+
   /// No description provided for @emptyCart.
   ///
   /// In en, this message translates to:
@@ -433,6 +439,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pay Now'**
   String get payNow;
+
+  /// No description provided for @payAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Pay'**
+  String get payAction;
+
+  /// No description provided for @saveAsOpenOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Open Order'**
+  String get saveAsOpenOrder;
 
   /// No description provided for @clear.
   ///

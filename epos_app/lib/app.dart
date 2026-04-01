@@ -15,6 +15,7 @@ import 'core/logging/app_logger.dart';
 import 'core/providers/app_providers.dart';
 import 'core/router/app_router.dart';
 import 'data/database/app_database.dart';
+import 'data/sync/supabase_client_provider.dart';
 import 'data/sync/sync_worker.dart';
 import 'presentation/providers/app_locale_provider.dart';
 

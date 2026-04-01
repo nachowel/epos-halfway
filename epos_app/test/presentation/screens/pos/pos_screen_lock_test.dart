@@ -1,6 +1,7 @@
 import 'package:epos_app/core/constants/app_strings.dart';
 import 'package:epos_app/core/localization/app_localization_service.dart';
 import 'package:epos_app/core/providers/app_providers.dart';
+import 'package:epos_app/core/utils/currency_formatter.dart';
 import 'package:epos_app/domain/models/product.dart';
 import 'package:epos_app/l10n/app_localizations.dart';
 import 'package:epos_app/presentation/providers/auth_provider.dart';
@@ -76,19 +77,12 @@ void main() {
         findsNWidgets(2),
       );
 
-      final ElevatedButton createOrderButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.createOrder),
-      );
-      final ElevatedButton payNowButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.payNow),
-      );
-      final OutlinedButton clearCartButton = tester.widget<OutlinedButton>(
-        find.widgetWithText(OutlinedButton, AppStrings.clearCart),
+      final ElevatedButton checkoutButton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, AppStrings.checkout),
       );
 
-      expect(createOrderButton.onPressed, isNull);
-      expect(payNowButton.onPressed, isNull);
-      expect(clearCartButton.onPressed, isNull);
+      expect(checkoutButton.onPressed, isNull);
+      expect(find.text(AppStrings.saveAsOpenOrder), findsNothing);
     },
   );
 
@@ -158,19 +152,12 @@ void main() {
         findsNWidgets(2),
       );
 
-      final ElevatedButton createOrderButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.createOrder),
-      );
-      final ElevatedButton payNowButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.payNow),
-      );
-      final OutlinedButton clearCartButton = tester.widget<OutlinedButton>(
-        find.widgetWithText(OutlinedButton, AppStrings.clearCart),
+      final ElevatedButton checkoutButton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, AppStrings.checkout),
       );
 
-      expect(createOrderButton.onPressed, isNull);
-      expect(payNowButton.onPressed, isNull);
-      expect(clearCartButton.onPressed, isNull);
+      expect(checkoutButton.onPressed, isNull);
+      expect(find.text(AppStrings.saveAsOpenOrder), findsNothing);
 
       await tester.tap(find.text('Tea').first, warnIfMissed: false);
       await tester.pumpAndSettle();
@@ -178,6 +165,79 @@ void main() {
       expect(container.read(cartNotifierProvider).items, hasLength(1));
     },
   );
+
+  testWidgets('checkout opens side sheet with focused payment actions', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    final int cashierId = await insertUser(
+      db,
+      name: 'Cashier',
+      role: 'cashier',
+    );
+    final int categoryId = await insertCategory(db, name: 'Drinks');
+    final int productId = await insertProduct(
+      db,
+      categoryId: categoryId,
+      name: 'Tea',
+      priceMinor: 250,
+    );
+    await insertShift(db, openedBy: cashierId);
+
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        appDatabaseProvider.overrideWithValue(db),
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        ordersNotifierProvider.overrideWith(
+          (Ref ref) => _StaticOrdersNotifier(ref),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authNotifierProvider.notifier).loadUserById(cashierId);
+    await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
+    container
+        .read(cartNotifierProvider.notifier)
+        .addProduct(
+          Product(
+            id: productId,
+            categoryId: categoryId,
+            name: 'Tea',
+            priceMinor: 250,
+            imageUrl: null,
+            hasModifiers: false,
+            isActive: true,
+            sortOrder: 0,
+          ),
+        );
+
+    await tester.pumpWidget(_localizedTestApp(container));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ElevatedButton, AppStrings.checkout), findsOne);
+    expect(find.text(AppStrings.saveAsOpenOrder), findsNothing);
+
+    await tester.tap(find.widgetWithText(ElevatedButton, AppStrings.checkout));
+    await tester.pumpAndSettle();
+
+    expect(find.text(AppStrings.paymentTitle), findsOneWidget);
+    expect(find.text(AppStrings.saveAsOpenOrder), findsOneWidget);
+    expect(find.text(AppStrings.clearCart), findsOneWidget);
+    expect(find.text(AppStrings.cash), findsOneWidget);
+    expect(find.text(AppStrings.card), findsOneWidget);
+    expect(
+      find.widgetWithText(
+        ElevatedButton,
+        '${AppStrings.payAction} ${CurrencyFormatter.fromMinor(250)}',
+      ),
+      findsOneWidget,
+    );
+  });
 }
 
 class _StaticOrdersNotifier extends OrdersNotifier {

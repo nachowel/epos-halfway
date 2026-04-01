@@ -18,6 +18,8 @@ import '../../data/repositories/payment_adjustment_repository.dart';
 import '../../data/repositories/payment_repository.dart';
 import '../../data/repositories/print_job_repository.dart';
 import '../../data/repositories/product_repository.dart';
+import '../../data/repositories/revenue_analytics_repository.dart';
+import '../../data/repositories/saved_analytics_view_store.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/shift_repository.dart';
 import '../../data/repositories/shift_reconciliation_repository.dart';
@@ -27,6 +29,9 @@ import '../../data/repositories/transaction_repository.dart';
 import '../../data/repositories/transaction_state_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/sync/supabase_sync_service.dart';
+import '../../data/sync/supabase_client_provider.dart';
+import '../../data/sync/supabase_connection_service.dart';
+import '../../data/sync/supabase_edge_function_invoker.dart';
 import '../../data/sync/sync_connectivity_service.dart';
 import '../../data/sync/sync_payload_repository.dart';
 import '../../data/sync/sync_remote_gateway.dart';
@@ -45,6 +50,7 @@ import '../../domain/services/payment_service.dart';
 import '../../domain/services/printer_service.dart';
 import '../../domain/services/report_service.dart';
 import '../../domain/services/report_visibility_service.dart';
+import '../../domain/services/revenue_analytics_service.dart';
 import '../../domain/services/shift_session_service.dart';
 import '../../presentation/providers/app_locale_provider.dart';
 
@@ -53,15 +59,12 @@ final Provider<AppDatabase> appDatabaseProvider = Provider<AppDatabase>((_) {
 });
 
 final Provider<AppConfig> appConfigProvider = Provider<AppConfig>(
-  (_) => AppConfig.fromEnvironment(),
+  (_) => AppConfig.fallback(),
 );
 
 final Provider<AppLogger> appLoggerProvider = Provider<AppLogger>((_) {
   return const NoopAppLogger();
 });
-
-final Provider<SupabaseClient?> supabaseClientProvider =
-    Provider<SupabaseClient?>((_) => null);
 
 final Provider<SharedPreferences> sharedPreferencesProvider =
     Provider<SharedPreferences>((_) {
@@ -173,8 +176,34 @@ final Provider<SyncConnectivityService> syncConnectivityServiceProvider =
 
 final Provider<SyncRemoteGateway> syncRemoteGatewayProvider =
     Provider<SyncRemoteGateway>(
-      (Ref ref) =>
-          SupabaseSyncService(client: ref.watch(supabaseClientProvider)),
+      (Ref ref) => SupabaseSyncService(
+        client: ref.watch(supabaseClientProvider),
+        config: ref.watch(appConfigProvider),
+        logger: ref.watch(appLoggerProvider),
+      ),
+    );
+
+final Provider<SupabaseConnectionService> supabaseConnectionServiceProvider =
+    Provider<SupabaseConnectionService>(
+      (Ref ref) => SupabaseConnectionService(
+        config: ref.watch(appConfigProvider),
+        probe: switch (ref.watch(supabaseClientProvider)) {
+          final SupabaseClient client => SupabaseEdgeFunctionConnectionProbe(
+            SupabaseEdgeFunctionInvoker(
+              config: ref.watch(appConfigProvider),
+              accessTokenProvider: () async =>
+                  client.auth.currentSession?.accessToken,
+              diagnosticsSink: (SupabaseEdgeFunctionAuthDiagnostics diagnostics) {
+                _logSyncEdgeFunctionDiagnostics(
+                  ref.watch(appLoggerProvider),
+                  diagnostics,
+                );
+              },
+            ),
+          ),
+          null => null,
+        },
+      ),
     );
 
 final Provider<SyncWorker> syncWorkerProvider = Provider<SyncWorker>((Ref ref) {
@@ -199,6 +228,65 @@ final Provider<SettingsRepository> settingsRepositoryProvider =
       (Ref ref) => SettingsRepository(ref.watch(appDatabaseProvider)),
     );
 
+final Provider<RevenueAnalyticsRepository> revenueAnalyticsRepositoryProvider =
+    Provider<RevenueAnalyticsRepository>(
+      (Ref ref) => SupabaseRevenueAnalyticsRepository(
+        client: ref.watch(supabaseClientProvider),
+        config: ref.watch(appConfigProvider),
+      ),
+    );
+
+final Provider<SavedAnalyticsViewStore> savedAnalyticsViewStoreProvider =
+    Provider<SavedAnalyticsViewStore>(
+      (Ref ref) => SavedAnalyticsViewStore(
+        ref.watch(sharedPreferencesProvider),
+      ),
+    );
+
+void _logSyncEdgeFunctionDiagnostics(
+  AppLogger logger,
+  SupabaseEdgeFunctionAuthDiagnostics diagnostics,
+) {
+  final Map<String, Object?> metadata = <String, Object?>{
+    'function_name': diagnostics.functionName,
+    'auth_source': diagnostics.authSource,
+    'authorization_exists': diagnostics.authorizationExists,
+    'authorization_starts_with_bearer':
+        diagnostics.authorizationStartsWithBearer,
+    'token_length': diagnostics.tokenLength,
+    'token_preview': diagnostics.tokenPreview,
+    'include_authorization': diagnostics.includeAuthorization,
+    'include_internal_key': diagnostics.includeInternalKey,
+    'internal_key_exists': diagnostics.internalKeyExists,
+    'internal_key_length': diagnostics.internalKeyLength,
+    'internal_key_preview': diagnostics.internalKeyPreview,
+    'internal_key_fallback_blocked': diagnostics.internalKeyFallbackBlocked,
+  };
+  if (diagnostics.internalKeyFallbackBlocked) {
+    logger.warn(
+      eventType: 'sync_internal_key_fallback_blocked',
+      message:
+          'Blocked the placeholder local-dev-key before calling a sync edge function.',
+      metadata: metadata,
+    );
+    return;
+  }
+  if (diagnostics.authSource.startsWith('rejected_')) {
+    logger.warn(
+      eventType: 'sync_edge_function_auth_candidate_rejected',
+      message:
+          'Rejected a malformed or non-JWT Authorization candidate before calling a sync edge function.',
+      metadata: metadata,
+    );
+    return;
+  }
+  logger.info(
+    eventType: 'sync_edge_function_auth_selected',
+    message: 'Prepared sync edge function auth headers.',
+    metadata: metadata,
+  );
+}
+
 final Provider<ShiftSessionService> shiftSessionServiceProvider =
     Provider<ShiftSessionService>(
       (Ref ref) => ShiftSessionService(
@@ -220,6 +308,7 @@ final Provider<AuthService> authServiceProvider = Provider<AuthService>(
   (Ref ref) => AuthService(
     ref.watch(userRepositoryProvider),
     ref.watch(shiftSessionServiceProvider),
+    ref.watch(appConfigProvider),
   ),
 );
 
@@ -286,8 +375,16 @@ final Provider<AdminService> adminServiceProvider = Provider<AdminService>(
     printerService: ref.watch(printerServiceProvider),
     appConfig: ref.watch(appConfigProvider),
     auditLogService: ref.watch(auditLogServiceProvider),
+    logger: ref.watch(appLoggerProvider),
   ),
 );
+
+final Provider<RevenueAnalyticsService> revenueAnalyticsServiceProvider =
+    Provider<RevenueAnalyticsService>(
+      (Ref ref) => RevenueAnalyticsService(
+        repository: ref.watch(revenueAnalyticsRepositoryProvider),
+      ),
+    );
 
 final Provider<OrderService> orderServiceProvider = Provider<OrderService>(
   (Ref ref) => OrderService(

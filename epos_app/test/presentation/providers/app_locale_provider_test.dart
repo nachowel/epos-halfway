@@ -25,6 +25,9 @@ void main() {
         container.read(appLocaleProvider),
       );
       expect(AppStrings.payNow, 'Pay Now');
+      expect(AppStrings.checkout, 'Checkout');
+      expect(AppStrings.payAction, 'Pay');
+      expect(AppStrings.saveAsOpenOrder, 'Save as Open Order');
 
       await container.read(appLocaleProvider.notifier).setLanguageCode('tr');
 
@@ -33,6 +36,9 @@ void main() {
         container.read(appLocaleProvider),
       );
       expect(AppStrings.payNow, 'Şimdi Öde');
+      expect(AppStrings.checkout, 'Ödeme');
+      expect(AppStrings.payAction, 'Öde');
+      expect(AppStrings.saveAsOpenOrder, 'Açık Sipariş Olarak Kaydet');
 
       final ProviderContainer reloaded = ProviderContainer(
         overrides: <Override>[

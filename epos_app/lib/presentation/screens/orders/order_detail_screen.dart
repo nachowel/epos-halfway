@@ -15,13 +15,13 @@ import '../../../domain/models/order_payment_policy.dart';
 import '../../../domain/models/order_refund_policy.dart';
 import '../../../domain/models/order_print_policy.dart';
 import '../../../domain/models/payment.dart';
+import '../../../domain/models/payment_adjustment.dart';
 import '../../../domain/models/print_job.dart';
 import '../../../domain/models/transaction.dart';
 import '../../../domain/models/user.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/orders_provider.dart';
 import '../../providers/shift_provider.dart';
-import '../../widgets/order_status_chip.dart';
 import '../../widgets/section_app_bar.dart';
 import '../pos/widgets/payment_dialog.dart';
 
@@ -532,6 +532,9 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
             target: PrintJobTarget.receipt,
             job: details.receiptPrintJob,
           );
+    final String payLabel = details == null
+        ? AppStrings.pay
+        : '${AppStrings.payAction} ${CurrencyFormatter.fromMinor(details.transaction.totalAmountMinor)}';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -550,327 +553,219 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
           : details == null
           ? Center(child: Text(AppStrings.notFound))
           : ListView(
-              padding: const EdgeInsets.all(AppSizes.spacingMd),
+              padding: const EdgeInsets.fromLTRB(
+                AppSizes.spacingMd,
+                AppSizes.spacingMd,
+                AppSizes.spacingMd,
+                AppSizes.spacingSm,
+              ),
               children: <Widget>[
+                _OrderHeaderCard(
+                  transaction: details.transaction,
+                  paymentEligibility: paymentEligibility,
+                  payment: details.payment,
+                  paymentAdjustment: details.paymentAdjustment,
+                  refundBlockedMessage:
+                      details.transaction.status == TransactionStatus.paid
+                      ? refundEligibility.blockedMessage
+                      : null,
+                  showStaleDraft:
+                      details.transaction.status == TransactionStatus.draft &&
+                      DraftOrderPolicy.isStale(details.transaction),
+                  kitchenPrintStatus: kitchenPrintStatus,
+                  receiptPrintStatus: receiptPrintStatus,
+                ),
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.all(AppSizes.spacingMd),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '${AppStrings.orderNumber(details.transaction.id)} · ${DateFormatter.formatDefault(details.transaction.createdAt)}',
-                        style: const TextStyle(
-                          fontSize: AppSizes.fontMd,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    boxShadow: const <BoxShadow>[
+                      BoxShadow(
+                        color: Color(0x080F172A),
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
                       ),
-                      const SizedBox(height: AppSizes.spacingSm),
-                      OrderStatusChip(
-                        status: details.transaction.status,
-                        updatedAt: details.transaction.updatedAt,
-                      ),
-                      const SizedBox(height: AppSizes.spacingSm),
-                      Text(
-                        details.transaction.tableNumber == null
-                            ? AppStrings.tableUnassigned
-                            : '${AppStrings.table}: ${details.transaction.tableNumber}',
-                        style: const TextStyle(
-                          fontSize: AppSizes.fontSm,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      if (!paymentEligibility.isAllowed &&
-                          details.transaction.status == TransactionStatus.sent)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingSm,
-                          ),
-                          child: Text(
-                            paymentEligibility.blockedMessage ??
-                                AppStrings.paymentUnavailable,
-                            style: const TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: AppColors.error,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      if (details.payment != null) ...<Widget>[
-                        const SizedBox(height: AppSizes.spacingSm),
-                        Text(
-                          '${AppStrings.paymentTitle}: ${details.payment!.method.name.toUpperCase()} · ${CurrencyFormatter.fromMinor(details.payment!.amountMinor)}',
-                          style: const TextStyle(
-                            fontSize: AppSizes.fontSm,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                      if (details.paymentAdjustment != null)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingSm,
-                          ),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(AppSizes.spacingSm),
-                            decoration: BoxDecoration(
-                              color: AppColors.warning.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(
-                                AppSizes.radiusMd,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  AppStrings.refundStatusCompleted,
-                                  style: const TextStyle(
-                                    fontSize: AppSizes.fontSm,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.warning,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSizes.spacingXs),
-                                Text(
-                                  '${AppStrings.refundReasonLabel}: ${details.paymentAdjustment!.reason}',
-                                  style: const TextStyle(
-                                    fontSize: AppSizes.fontSm,
-                                  ),
-                                ),
-                                Text(
-                                  '${AppStrings.refundedAt}: ${DateFormatter.formatDefault(details.paymentAdjustment!.createdAt)}',
-                                  style: const TextStyle(
-                                    fontSize: AppSizes.fontSm,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else if (details.transaction.status ==
-                              TransactionStatus.paid &&
-                          refundEligibility.blockedMessage != null)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingSm,
-                          ),
-                          child: Text(
-                            refundEligibility.blockedMessage!,
-                            style: const TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: AppColors.error,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      if (details.transaction.status ==
-                              TransactionStatus.draft &&
-                          DraftOrderPolicy.isStale(details.transaction))
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingSm,
-                          ),
-                          child: Text(
-                            AppStrings.staleDraftDetailMessage,
-                            style: const TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: AppColors.warning,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      if (kitchenPrintStatus.isVisible)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingSm,
-                          ),
-                          child: Text(
-                            kitchenPrintStatus.message!,
-                            style: TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: kitchenPrintStatus.isFailure
-                                  ? AppColors.error
-                                  : AppColors.textSecondary,
-                              fontWeight: kitchenPrintStatus.isFailure
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      if (receiptPrintStatus.isVisible)
-                        Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSizes.spacingXs,
-                          ),
-                          child: Text(
-                            receiptPrintStatus.message!,
-                            style: TextStyle(
-                              fontSize: AppSizes.fontSm,
-                              color: receiptPrintStatus.isFailure
-                                  ? AppColors.error
-                                  : AppColors.textSecondary,
-                              fontWeight: receiptPrintStatus.isFailure
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
-                ),
-                const SizedBox(height: AppSizes.spacingMd),
-                ...details.lines.map((OrderDetailLine detailLine) {
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: AppSizes.spacingSm),
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSizes.spacingMd),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  '${detailLine.line.quantity}x ${detailLine.line.productName}',
-                                  style: const TextStyle(
-                                    fontSize: AppSizes.fontSm,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                CurrencyFormatter.fromMinor(
-                                  detailLine.line.lineTotalMinor,
-                                ),
-                                style: const TextStyle(
-                                  fontSize: AppSizes.fontSm,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
+                  child: Column(
+                    children: <Widget>[
+                      for (
+                        int index = 0;
+                        index < details.lines.length;
+                        index++
+                      ) ...<Widget>[
+                        if (index > 0)
+                          const Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: AppColors.border,
                           ),
-                          if (detailLine.modifiers.isNotEmpty) ...<Widget>[
-                            const SizedBox(height: AppSizes.spacingXs),
-                            ...detailLine.modifiers.map((modifier) {
-                              final bool isAdd =
-                                  modifier.action == ModifierAction.add;
-                              return Text(
-                                '${isAdd ? '+' : '-'} ${modifier.itemName}${isAdd ? ' ${CurrencyFormatter.fromMinor(modifier.extraPriceMinor)}' : ''}',
-                                style: const TextStyle(
-                                  fontSize: AppSizes.fontSm,
-                                  color: AppColors.textSecondary,
-                                ),
-                              );
-                            }),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                const SizedBox(height: AppSizes.spacingMd),
-                _SummaryRow(
-                  label: AppStrings.subtotal,
-                  value: CurrencyFormatter.fromMinor(
-                    details.transaction.subtotalMinor,
+                        _OrderLineRow(detailLine: details.lines[index]),
+                      ],
+                    ],
                   ),
-                ),
-                _SummaryRow(
-                  label: AppStrings.modifierTotal,
-                  value: CurrencyFormatter.fromMinor(
-                    details.transaction.modifierTotalMinor,
-                  ),
-                ),
-                _SummaryRow(
-                  label: AppStrings.total,
-                  value: CurrencyFormatter.fromMinor(
-                    details.transaction.totalAmountMinor,
-                  ),
-                  isEmphasis: true,
                 ),
               ],
             ),
       bottomNavigationBar: details == null
           ? null
           : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSizes.spacingMd),
-                child: Wrap(
-                  spacing: AppSizes.spacingSm,
-                  runSpacing: AppSizes.spacingSm,
-                  alignment: WrapAlignment.end,
-                  children: <Widget>[
-                    OutlinedButton(
-                      onPressed: canEditTable
-                          ? () => _handleTableUpdate(details.transaction)
-                          : null,
-                      child: Text(
-                        details.transaction.tableNumber == null
-                            ? AppStrings.addTable
-                            : AppStrings.editTable,
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: canReprintKitchen
-                          ? _handleKitchenReprint
-                          : null,
-                      child: Text(AppStrings.kitchenPrint),
-                    ),
-                    OutlinedButton(
-                      onPressed: canReprintReceipt
-                          ? _handleReceiptReprint
-                          : null,
-                      child: Text(AppStrings.receiptPrint),
-                    ),
-                    ElevatedButton(
-                      onPressed: canSendOrder && !isActionLocked
-                          ? _handleSendOrder
-                          : null,
-                      child: Text(AppStrings.sendOrderAction),
-                    ),
-                    ElevatedButton(
-                      onPressed: canDiscardDraft ? _handleDiscardDraft : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.warning,
-                      ),
-                      child: Text(AppStrings.discardDraftAction),
-                    ),
-                    ElevatedButton(
-                      onPressed:
-                          details.transaction.status ==
-                                  TransactionStatus.sent &&
-                              paymentEligibility.isAllowed &&
-                              !isActionLocked
-                          ? () => _handlePayment(
-                              details.transaction.totalAmountMinor,
-                            )
-                          : null,
-                      child: Text(AppStrings.pay),
-                    ),
-                    ElevatedButton(
-                      onPressed:
-                          details.transaction.status == TransactionStatus.paid &&
-                              refundEligibility.isAllowed &&
-                              !isActionLocked
-                          ? _handleRefund
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.warning,
-                      ),
-                      child: Text(AppStrings.refundAction),
-                    ),
-                    ElevatedButton(
-                      onPressed: canCancelOrder ? _handleCancel : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.error,
-                      ),
-                      child: Text(AppStrings.cancel),
-                    ),
-                  ],
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border(top: BorderSide(color: AppColors.border)),
+                ),
+                child: LayoutBuilder(
+                  builder: (BuildContext context, BoxConstraints constraints) {
+                    final VoidCallback? onPay =
+                        details.transaction.status == TransactionStatus.sent &&
+                            paymentEligibility.isAllowed &&
+                            !isActionLocked
+                        ? () => _handlePayment(
+                            details.transaction.totalAmountMinor,
+                          )
+                        : null;
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Container(
+                          key: const ValueKey<String>('detail-sticky-total'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceMuted,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            children: <Widget>[
+                              const Text(
+                                'TOTAL',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textSecondary,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                CurrencyFormatter.fromMinor(
+                                  details.transaction.totalAmountMinor,
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primary,
+                                  height: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: _PrimaryActionButton(
+                                key: const ValueKey<String>('detail-cancel'),
+                                label: AppStrings.cancel,
+                                onPressed: canCancelOrder
+                                    ? _handleCancel
+                                    : null,
+                                variant: _PrimaryActionVariant.outlinedDanger,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: _PrimaryActionButton(
+                                key: const ValueKey<String>('detail-pay'),
+                                label: payLabel,
+                                onPressed: onPay,
+                                variant: _PrimaryActionVariant.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: <Widget>[
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>('detail-send'),
+                                label: AppStrings.sendOrderAction,
+                                onPressed: canSendOrder && !isActionLocked
+                                    ? _handleSendOrder
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>('detail-table'),
+                                label: details.transaction.tableNumber == null
+                                    ? AppStrings.addTable
+                                    : AppStrings.editTable,
+                                onPressed: canEditTable
+                                    ? () => _handleTableUpdate(
+                                        details.transaction,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>(
+                                  'detail-kitchen-print',
+                                ),
+                                label: AppStrings.kitchenPrint,
+                                onPressed: canReprintKitchen
+                                    ? _handleKitchenReprint
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>(
+                                  'detail-receipt-print',
+                                ),
+                                label: AppStrings.receiptPrint,
+                                onPressed: canReprintReceipt
+                                    ? _handleReceiptReprint
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>('detail-refund'),
+                                label: AppStrings.refundAction,
+                                onPressed:
+                                    details.transaction.status ==
+                                            TransactionStatus.paid &&
+                                        refundEligibility.isAllowed &&
+                                        !isActionLocked
+                                    ? _handleRefund
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _SecondaryActionChip(
+                                key: const ValueKey<String>(
+                                  'detail-discard-draft',
+                                ),
+                                label: AppStrings.discardDraftAction,
+                                onPressed: canDiscardDraft
+                                    ? _handleDiscardDraft
+                                    : null,
+                                accentColor: AppColors.warning,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -878,34 +773,318 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
   }
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({
-    required this.label,
-    required this.value,
-    this.isEmphasis = false,
+class _OrderHeaderCard extends StatelessWidget {
+  const _OrderHeaderCard({
+    required this.transaction,
+    required this.paymentEligibility,
+    required this.payment,
+    required this.paymentAdjustment,
+    required this.refundBlockedMessage,
+    required this.showStaleDraft,
+    required this.kitchenPrintStatus,
+    required this.receiptPrintStatus,
   });
 
-  final String label;
-  final String value;
-  final bool isEmphasis;
+  final Transaction transaction;
+  final OrderPaymentEligibility paymentEligibility;
+  final Payment? payment;
+  final PaymentAdjustment? paymentAdjustment;
+  final String? refundBlockedMessage;
+  final bool showStaleDraft;
+  final OrderPrintStatusView kitchenPrintStatus;
+  final OrderPrintStatusView receiptPrintStatus;
 
   @override
   Widget build(BuildContext context) {
-    final TextStyle style = TextStyle(
-      fontSize: isEmphasis ? AppSizes.fontMd : AppSizes.fontSm,
-      fontWeight: isEmphasis ? FontWeight.w700 : FontWeight.w500,
-      color: isEmphasis ? AppColors.primary : AppColors.textPrimary,
-    );
+    final String headerTitle =
+        '${AppStrings.orderNumber(transaction.id)} • ${CurrencyFormatter.fromMinor(transaction.totalAmountMinor)}';
+    final String metaLabel =
+        '${DateFormatter.formatTime(transaction.createdAt)} • ${transaction.tableNumber == null ? AppStrings.tableUnassigned : '${AppStrings.table} ${transaction.tableNumber}'}';
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSizes.spacingXs),
-      child: Row(
-        children: <Widget>[
-          Text(label, style: style),
-          const Spacer(),
-          Text(value, style: style),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x080F172A),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            headerTitle,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              height: 1.05,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            metaLabel,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+              height: 1.1,
+            ),
+          ),
+          if (!paymentEligibility.isAllowed &&
+              transaction.status == TransactionStatus.sent) ...<Widget>[
+            const SizedBox(height: 10),
+            _InlineNotice(
+              message:
+                  paymentEligibility.blockedMessage ??
+                  AppStrings.paymentUnavailable,
+              color: AppColors.error,
+            ),
+          ],
+          if (payment != null) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message:
+                  '${AppStrings.paymentTitle}: ${payment!.method.name.toUpperCase()} • ${CurrencyFormatter.fromMinor(payment!.amountMinor)}',
+              color: AppColors.success,
+              useTint: true,
+            ),
+          ],
+          if (paymentAdjustment != null) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message:
+                  '${AppStrings.refundStatusCompleted}: ${paymentAdjustment!.reason} • ${DateFormatter.formatDefault(paymentAdjustment!.createdAt)}',
+              color: AppColors.warning,
+              useTint: true,
+            ),
+          ] else if (refundBlockedMessage != null) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message: refundBlockedMessage!,
+              color: AppColors.error,
+            ),
+          ],
+          if (showStaleDraft) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message: AppStrings.staleDraftDetailMessage,
+              color: AppColors.warning,
+            ),
+          ],
+          if (kitchenPrintStatus.isVisible) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message: kitchenPrintStatus.message!,
+              color: kitchenPrintStatus.isFailure
+                  ? AppColors.error
+                  : AppColors.textSecondary,
+              useTint: kitchenPrintStatus.isFailure,
+            ),
+          ],
+          if (receiptPrintStatus.isVisible) ...<Widget>[
+            const SizedBox(height: 8),
+            _InlineNotice(
+              message: receiptPrintStatus.message!,
+              color: receiptPrintStatus.isFailure
+                  ? AppColors.error
+                  : AppColors.textSecondary,
+              useTint: receiptPrintStatus.isFailure,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({
+    required this.message,
+    required this.color,
+    this.useTint = false,
+  });
+
+  final String message;
+  final Color color;
+  final bool useTint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: useTint ? color.withValues(alpha: 0.12) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: color,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderLineRow extends StatelessWidget {
+  const _OrderLineRow({required this.detailLine});
+
+  final OrderDetailLine detailLine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '${detailLine.line.quantity}x ${detailLine.line.productName}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                    height: 1.15,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                CurrencyFormatter.fromMinor(detailLine.line.lineTotalMinor),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+          if (detailLine.modifiers.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 4),
+            ...detailLine.modifiers.map((OrderModifier modifier) {
+              final bool isAdd = modifier.action == ModifierAction.add;
+              return Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Text(
+                  '${isAdd ? '+' : '-'} ${modifier.itemName}${isAdd ? ' ${CurrencyFormatter.fromMinor(modifier.extraPriceMinor)}' : ''}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                    height: 1.2,
+                  ),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+enum _PrimaryActionVariant { primary, outlinedDanger }
+
+class _PrimaryActionButton extends StatelessWidget {
+  const _PrimaryActionButton({
+    required this.label,
+    required this.onPressed,
+    required this.variant,
+    super.key,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final _PrimaryActionVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDanger = variant == _PrimaryActionVariant.outlinedDanger;
+
+    return SizedBox(
+      height: 60,
+      child: isDanger
+          ? OutlinedButton(
+              onPressed: onPressed,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.error),
+                foregroundColor: AppColors.error,
+                disabledForegroundColor: AppColors.textSecondary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            )
+          : ElevatedButton(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.surface,
+                disabledBackgroundColor: AppColors.surfaceMuted,
+                disabledForegroundColor: AppColors.textSecondary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+    );
+  }
+}
+
+class _SecondaryActionChip extends StatelessWidget {
+  const _SecondaryActionChip({
+    required this.label,
+    required this.onPressed,
+    this.accentColor = AppColors.textSecondary,
+    super.key,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 56),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        foregroundColor: accentColor,
+        disabledForegroundColor: AppColors.textSecondary,
+        side: BorderSide(color: accentColor.withValues(alpha: 0.35)),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+      child: Text(label),
     );
   }
 }

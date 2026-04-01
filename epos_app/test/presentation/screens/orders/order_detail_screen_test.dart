@@ -1,6 +1,7 @@
 import 'package:epos_app/core/constants/app_strings.dart';
 import 'package:epos_app/core/localization/app_localization_service.dart';
 import 'package:epos_app/core/providers/app_providers.dart';
+import 'package:epos_app/core/utils/currency_formatter.dart';
 import 'package:epos_app/l10n/app_localizations.dart';
 import 'package:epos_app/presentation/providers/auth_provider.dart';
 import 'package:epos_app/presentation/providers/shift_provider.dart';
@@ -58,17 +59,29 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final ElevatedButton sendButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.sendOrderAction),
+      final OutlinedButton sendButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-send')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
-      final ElevatedButton discardButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.discardDraftAction),
+      final OutlinedButton discardButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-discard-draft')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
       final ElevatedButton payButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.pay),
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-pay')),
+          matching: find.byType(ElevatedButton),
+        ),
       );
-      final ElevatedButton cancelButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.cancel),
+      final OutlinedButton cancelButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-cancel')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
 
       expect(sendButton.onPressed, isNotNull);
@@ -122,17 +135,29 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final ElevatedButton sendButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.sendOrderAction),
+      final OutlinedButton sendButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-send')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
-      final ElevatedButton discardButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.discardDraftAction),
+      final OutlinedButton discardButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-discard-draft')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
       final ElevatedButton payButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.pay),
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-pay')),
+          matching: find.byType(ElevatedButton),
+        ),
       );
-      final ElevatedButton cancelButton = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, AppStrings.cancel),
+      final OutlinedButton cancelButton = tester.widget<OutlinedButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('detail-cancel')),
+          matching: find.byType(OutlinedButton),
+        ),
       );
 
       expect(sendButton.onPressed, isNull);
@@ -195,19 +220,24 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(ElevatedButton, AppStrings.pay));
+      await tester.tap(
+        find.widgetWithText(
+          ElevatedButton,
+          '${AppStrings.payAction} ${CurrencyFormatter.fromMinor(500)}',
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text(AppStrings.salesLockedAdminCloseRequired), findsNothing);
 
-      final List<ElevatedButton> payButtons = tester
-          .widgetList<ElevatedButton>(
-            find.widgetWithText(ElevatedButton, AppStrings.pay),
-          )
-          .toList(growable: false);
+      final String dialogPayLabel =
+          '${AppStrings.payAction} ${CurrencyFormatter.fromMinor(500)}';
+      final ElevatedButton dialogPayButton = tester.widget<ElevatedButton>(
+        find.byKey(const ValueKey<String>('payment-submit')),
+      );
 
-      expect(payButtons, hasLength(2));
-      expect(payButtons.last.onPressed, isNotNull);
+      expect(find.text(dialogPayLabel), findsWidgets);
+      expect(dialogPayButton.onPressed, isNotNull);
     },
   );
 }

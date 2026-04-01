@@ -59,12 +59,15 @@ class AppStrings {
   static String get noCategories => _t.noCategories;
   static String get noProductsInCategory => _t.noProductsInCategory;
   static String get cartTitle => _t.cart;
+  static String get checkout => _t.checkout;
   static String get cartEmpty => _t.emptyCart;
   static String get subtotal => _t.subtotal;
   static String get modifierTotal => _t.modifierTotal;
   static String get total => _t.total;
   static String get createOrder => _t.orderNow;
   static String get payNow => _t.payNow;
+  static String get payAction => _t.payAction;
+  static String get saveAsOpenOrder => _t.saveAsOpenOrder;
   static String get clearCart => _t.clear;
   static String get modifierDialogTitle => _t.modifierDialogTitle;
   static String get includedModifiers => _t.includedModifiers;
