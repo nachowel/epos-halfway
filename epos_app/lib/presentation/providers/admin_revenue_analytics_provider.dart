@@ -8,6 +8,7 @@ import '../../domain/models/analytics/analytics_export.dart';
 import '../../domain/models/analytics/analytics_period.dart';
 import '../../domain/models/analytics/saved_analytics_view.dart';
 import '../../domain/models/revenue_summary.dart';
+import '../../domain/models/semantic_sales_analytics.dart';
 import '../../domain/models/user.dart';
 import 'auth_provider.dart';
 
@@ -65,7 +66,9 @@ class AdminRevenueAnalyticsState {
       selectedSavedViewId: selectedSavedViewId == _unset
           ? this.selectedSavedViewId
           : selectedSavedViewId as String?,
-      lastExport: lastExport == _unset ? this.lastExport : lastExport as AnalyticsExport?,
+      lastExport: lastExport == _unset
+          ? this.lastExport
+          : lastExport as AnalyticsExport?,
       isPrintViewOpen: isPrintViewOpen ?? this.isPrintViewOpen,
     );
   }
@@ -80,9 +83,7 @@ class AdminRevenueAnalyticsNotifier
   final Ref _ref;
   final Uuid _uuid;
 
-  Future<void> initialize({
-    AnalyticsPeriodSelection? selection,
-  }) async {
+  Future<void> initialize({AnalyticsPeriodSelection? selection}) async {
     await loadSavedViews();
     await ensurePeriodSelection(selection ?? state.periodSelection);
   }
@@ -111,10 +112,28 @@ class AdminRevenueAnalyticsNotifier
             user: currentUser,
             periodSelection: effectiveSelection,
           );
+      SemanticSalesAnalytics semanticSalesAnalytics =
+          const SemanticSalesAnalytics.empty();
+      String? semanticAnalyticsWarning;
+      try {
+        semanticSalesAnalytics = await _ref
+            .read(reportServiceProvider)
+            .getSemanticSalesAnalyticsForPeriod(
+              user: currentUser,
+              periodSelection: effectiveSelection,
+            );
+      } catch (error, stackTrace) {
+        semanticAnalyticsWarning = ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'admin_semantic_analytics_load_failed',
+          stackTrace: stackTrace,
+        );
+      }
       state = state.copyWith(
-        summary: summary,
+        summary: _summaryWithSemanticAnalytics(summary, semanticSalesAnalytics),
         isLoading: false,
-        errorMessage: null,
+        errorMessage: semanticAnalyticsWarning,
         periodSelection: effectiveSelection,
       );
     } catch (error, stackTrace) {
@@ -177,10 +196,12 @@ class AdminRevenueAnalyticsNotifier
   }
 
   Future<SavedAnalyticsView?> applySavedView(String id) async {
-    final SavedAnalyticsView? view = state.savedViews.cast<SavedAnalyticsView?>().firstWhere(
-      (SavedAnalyticsView? item) => item?.id == id,
-      orElse: () => null,
-    );
+    final SavedAnalyticsView? view = state.savedViews
+        .cast<SavedAnalyticsView?>()
+        .firstWhere(
+          (SavedAnalyticsView? item) => item?.id == id,
+          orElse: () => null,
+        );
     if (view == null) {
       state = state.copyWith(selectedSavedViewId: null);
       return null;
@@ -215,6 +236,27 @@ class AdminRevenueAnalyticsNotifier
 
   void setPrintViewOpen(bool value) {
     state = state.copyWith(isPrintViewOpen: value);
+  }
+
+  RevenueSummary _summaryWithSemanticAnalytics(
+    RevenueSummary summary,
+    SemanticSalesAnalytics analytics,
+  ) {
+    return RevenueSummary(
+      generatedAt: summary.generatedAt,
+      timezone: summary.timezone,
+      todayRevenue: summary.todayRevenue,
+      thisWeekRevenue: summary.thisWeekRevenue,
+      thisMonthRevenue: summary.thisMonthRevenue,
+      averageOrderValueCurrentWeek: summary.averageOrderValueCurrentWeek,
+      dailyTrend: summary.dailyTrend,
+      weeklySummary: summary.weeklySummary,
+      hourlyDistribution: summary.hourlyDistribution,
+      insights: summary.insights,
+      intelligenceInputs: summary.intelligenceInputs,
+      selectedPeriodSummary: summary.selectedPeriodSummary,
+      semanticSalesAnalytics: analytics,
+    );
   }
 }
 

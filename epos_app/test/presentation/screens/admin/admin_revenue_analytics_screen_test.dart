@@ -7,10 +7,12 @@ import 'package:epos_app/domain/models/analytics/insight.dart';
 import 'package:epos_app/domain/models/analytics/saved_analytics_view.dart';
 import 'package:epos_app/domain/models/daily_revenue_point.dart';
 import 'package:epos_app/domain/models/hourly_distribution.dart';
+import 'package:epos_app/domain/models/order_modifier.dart';
 import 'package:epos_app/domain/models/revenue_comparison.dart';
 import 'package:epos_app/domain/models/revenue_insights.dart';
 import 'package:epos_app/domain/models/revenue_intelligence_inputs.dart';
 import 'package:epos_app/domain/models/revenue_summary.dart';
+import 'package:epos_app/domain/models/semantic_sales_analytics.dart';
 import 'package:epos_app/domain/models/user.dart';
 import 'package:epos_app/domain/models/weekly_revenue_point.dart';
 import 'package:epos_app/l10n/app_localizations.dart';
@@ -124,6 +126,116 @@ void main() {
       },
     );
 
+    testWidgets('renders semantic analytics insight section for admins', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(1440, 3200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        await _buildApp(
+          analyticsState: AdminRevenueAnalyticsState(
+            summary: _sampleSummary(
+              semanticSalesAnalytics: _sampleSemanticSalesAnalytics(),
+            ),
+            isLoading: false,
+            errorMessage: null,
+            periodSelection: const AnalyticsPeriodSelection.preset(
+              AnalyticsPresetPeriod.thisWeek,
+            ),
+            savedViews: const <SavedAnalyticsView>[],
+            selectedSavedViewId: null,
+            lastExport: null,
+            isPrintViewOpen: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(adminAnalyticsSemanticSectionKey), findsOneWidget);
+      expect(find.text('Menü Davranışı'), findsOneWidget);
+      expect(find.text('Ürün Performansı'), findsOneWidget);
+      expect(find.text('Seçim Dağılımı'), findsOneWidget);
+      expect(find.text('Ek Gelir'), findsOneWidget);
+      expect(find.text('Öne Çıkan Varyantlar'), findsOneWidget);
+      expect(find.textContaining('Set 5 Breakfast'), findsOneWidget);
+      expect(find.textContaining('Drink Choice: Tea'), findsOneWidget);
+      expect(find.textContaining('Hash Brown eklendi'), findsOneWidget);
+    });
+
+    testWidgets(
+      'hides semantic section cleanly when no semantic analytics exist',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(1440, 3200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          await _buildApp(
+            analyticsState: AdminRevenueAnalyticsState(
+              summary: _sampleSummary(),
+              isLoading: false,
+              errorMessage: null,
+              periodSelection: const AnalyticsPeriodSelection.preset(
+                AnalyticsPresetPeriod.thisWeek,
+              ),
+              savedViews: const <SavedAnalyticsView>[],
+              selectedSavedViewId: null,
+              lastExport: null,
+              isPrintViewOpen: false,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(adminAnalyticsSemanticSectionKey), findsNothing);
+        expect(find.text('Menü Davranışı'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'renders localized fallback labels and historical semantic notes',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(1440, 3200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          await _buildApp(
+            analyticsState: AdminRevenueAnalyticsState(
+              summary: _sampleSummary(
+                semanticSalesAnalytics: _sampleFallbackSemanticSalesAnalytics(),
+              ),
+              isLoading: false,
+              errorMessage: null,
+              periodSelection: const AnalyticsPeriodSelection.preset(
+                AnalyticsPresetPeriod.thisWeek,
+              ),
+              savedViews: const <SavedAnalyticsView>[],
+              selectedSavedViewId: null,
+              lastExport: null,
+              isPrintViewOpen: false,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Arşiv grup #501: Ürün #31'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Ürün #45 çıkarıldı'), findsOneWidget);
+        expect(
+          find.textContaining('arşivlenmiş grup kimliğiyle gösteriliyor'),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('period control reloads provider and printable summary opens', (
       WidgetTester tester,
     ) async {
@@ -202,7 +314,9 @@ void main() {
       expect(
         notifier.requestedSelections,
         contains(
-          const AnalyticsPeriodSelection.preset(AnalyticsPresetPeriod.thisMonth),
+          const AnalyticsPeriodSelection.preset(
+            AnalyticsPresetPeriod.thisMonth,
+          ),
         ),
       );
       expect(find.text('Ciro Paneli'), findsOneWidget);
@@ -286,7 +400,12 @@ void main() {
       expect(text, contains('Karşılaştırma: İvme'));
       expect(text, contains('Trend: Son 14 Gün'));
       expect(text, contains('Öne Çıkan İçgörü: Öne Çıkan Ürün'));
-      expect(text, contains('Veri Notu: Ürün hareketleri, kararlı ürün kimlikleri eksik olduğu için ad bazlı gruplanmıştır.'));
+      expect(
+        text,
+        contains(
+          'Veri Notu: Ürün hareketleri, kararlı ürün kimlikleri eksik olduğu için ad bazlı gruplanmıştır.',
+        ),
+      );
       expect(text, isNot(contains('current_product_name')));
     });
 
@@ -305,7 +424,10 @@ void main() {
       );
 
       expect(paymentMix.value, 'Ödeme dağılımı mevcut değil');
-      expect(paymentMix.supportingLabel, contains('ödeme dağılımı verisi dönmedi'));
+      expect(
+        paymentMix.supportingLabel,
+        contains('ödeme dağılımı verisi dönmedi'),
+      );
       expect(paymentMix.value, isNot(contains('0% cash / 0% card')));
     });
 
@@ -385,7 +507,10 @@ void main() {
       expect(find.text('£4,720.00 · %37.9'), findsOneWidget);
       expect(find.text('£7,730.00 · %62.1'), findsOneWidget);
       expect(find.text('%18.3 artış · geçen haftaya göre'), findsOneWidget);
-      expect(find.textContaining('geçen haftaya göre · geçen haftaya göre'), findsNothing);
+      expect(
+        find.textContaining('geçen haftaya göre · geçen haftaya göre'),
+        findsNothing,
+      );
     });
 
     test('builds share link with current state only', () {
@@ -435,7 +560,9 @@ void main() {
 
       expect(snapshot.insights.length, lessThanOrEqualTo(3));
       expect(
-        snapshot.insights.any((Insight insight) => insight.title == 'Top Product Mover'),
+        snapshot.insights.any(
+          (Insight insight) => insight.title == 'Top Product Mover',
+        ),
         isFalse,
       );
     });
@@ -467,7 +594,10 @@ void main() {
         comparisonMode: AnalyticsComparisonMode.baselineSummary,
         selectedInsight: null,
       );
-      expect(snapshot.kpis.first.supportingLabel, '%18.3 artış · geçen haftaya göre');
+      expect(
+        snapshot.kpis.first.supportingLabel,
+        '%18.3 artış · geçen haftaya göre',
+      );
 
       snapshot = buildAdminAnalyticsSnapshot(
         summary: _sampleSummary(
@@ -481,7 +611,10 @@ void main() {
         comparisonMode: AnalyticsComparisonMode.baselineSummary,
         selectedInsight: null,
       );
-      expect(snapshot.kpis.first.supportingLabel, '%18.3 artış · geçen aya göre');
+      expect(
+        snapshot.kpis.first.supportingLabel,
+        '%18.3 artış · geçen aya göre',
+      );
 
       snapshot = buildAdminAnalyticsSnapshot(
         summary: _sampleSummary(
@@ -497,7 +630,10 @@ void main() {
         comparisonMode: AnalyticsComparisonMode.baselineSummary,
         selectedInsight: null,
       );
-      expect(snapshot.kpis.first.supportingLabel, '%18.3 artış · önceki eşdeğer döneme göre');
+      expect(
+        snapshot.kpis.first.supportingLabel,
+        '%18.3 artış · önceki eşdeğer döneme göre',
+      );
     });
 
     test('kpi comparison labels harden no-baseline and flat states', () {
@@ -519,7 +655,10 @@ void main() {
         comparisonMode: AnalyticsComparisonMode.baselineSummary,
         selectedInsight: null,
       );
-      expect(noBaselineSnapshot.kpis.first.supportingLabel, 'Karşılaştırma verisi yok');
+      expect(
+        noBaselineSnapshot.kpis.first.supportingLabel,
+        'Karşılaştırma verisi yok',
+      );
 
       final AnalyticsSnapshot flatSnapshot = buildAdminAnalyticsSnapshot(
         summary: _copySummary(
@@ -547,40 +686,47 @@ void main() {
         comparisonMode: AnalyticsComparisonMode.baselineSummary,
         selectedInsight: null,
       );
-      expect(flatSnapshot.kpis.first.supportingLabel, 'Değişim yok · geçen aya göre');
+      expect(
+        flatSnapshot.kpis.first.supportingLabel,
+        'Değişim yok · geçen aya göre',
+      );
       expect(
         flatSnapshot.kpis.first.supportingLabel,
         isNot(contains('geçen aya göre · geçen aya göre')),
       );
     });
 
-    testWidgets('zero baseline and zero current use honest zero-state message', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        await _buildApp(
-          analyticsState: AdminRevenueAnalyticsState(
-            summary: _sampleZeroRevenueNoBaselineSummary(),
-            isLoading: false,
-            errorMessage: null,
-            periodSelection: const AnalyticsPeriodSelection.preset(
-              AnalyticsPresetPeriod.thisWeek,
+    testWidgets(
+      'zero baseline and zero current use honest zero-state message',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          await _buildApp(
+            analyticsState: AdminRevenueAnalyticsState(
+              summary: _sampleZeroRevenueNoBaselineSummary(),
+              isLoading: false,
+              errorMessage: null,
+              periodSelection: const AnalyticsPeriodSelection.preset(
+                AnalyticsPresetPeriod.thisWeek,
+              ),
+              savedViews: const <SavedAnalyticsView>[],
+              selectedSavedViewId: null,
+              lastExport: null,
+              isPrintViewOpen: false,
             ),
-            savedViews: const <SavedAnalyticsView>[],
-            selectedSavedViewId: null,
-            lastExport: null,
-            isPrintViewOpen: false,
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('Seçili dönemde tamamlanmış sipariş bulunmuyor.'), findsOneWidget);
-      expect(
-        find.text('Önceki eşdeğer dönemde de ödenmiş ciro bulunmuyor.'),
-        findsOneWidget,
-      );
-    });
+        expect(
+          find.text('Seçili dönemde tamamlanmış sipariş bulunmuyor.'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Önceki eşdeğer dönemde de ödenmiş ciro bulunmuyor.'),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('zero current with previous revenue keeps drop context honest', (
       WidgetTester tester,
@@ -603,35 +749,53 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Seçili dönemde ödenmiş ciro oluşmadı.'), findsOneWidget);
       expect(
-        find.text('Önceki eşdeğer dönemde £620.00 ciro ve 14 tamamlanmış sipariş vardı.'),
+        find.text('Seçili dönemde ödenmiş ciro oluşmadı.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Önceki eşdeğer dönemde £620.00 ciro ve 14 tamamlanmış sipariş vardı.',
+        ),
         findsOneWidget,
       );
       expect(find.textContaining('Flat'), findsNothing);
     });
 
-    test('payment mix missing stays unavailable while inconsistent becomes incomplete', () {
-      AnalyticsSnapshot snapshot = buildAdminAnalyticsSnapshot(
-        summary: _sampleSummaryWithUnavailablePaymentMix(),
-        periodSelection: const AnalyticsPeriodSelection.preset(
-          AnalyticsPresetPeriod.thisWeek,
-        ),
-        comparisonMode: AnalyticsComparisonMode.baselineSummary,
-        selectedInsight: null,
-      );
-      expect(snapshot.kpis.firstWhere((kpi) => kpi.title == 'Ödeme Dağılımı').value, 'Ödeme dağılımı mevcut değil');
+    test(
+      'payment mix missing stays unavailable while inconsistent becomes incomplete',
+      () {
+        AnalyticsSnapshot snapshot = buildAdminAnalyticsSnapshot(
+          summary: _sampleSummaryWithUnavailablePaymentMix(),
+          periodSelection: const AnalyticsPeriodSelection.preset(
+            AnalyticsPresetPeriod.thisWeek,
+          ),
+          comparisonMode: AnalyticsComparisonMode.baselineSummary,
+          selectedInsight: null,
+        );
+        expect(
+          snapshot.kpis
+              .firstWhere((kpi) => kpi.title == 'Ödeme Dağılımı')
+              .value,
+          'Ödeme dağılımı mevcut değil',
+        );
 
-      snapshot = buildAdminAnalyticsSnapshot(
-        summary: _sampleSummaryWithInconsistentPaymentMix(),
-        periodSelection: const AnalyticsPeriodSelection.preset(
-          AnalyticsPresetPeriod.thisWeek,
-        ),
-        comparisonMode: AnalyticsComparisonMode.baselineSummary,
-        selectedInsight: null,
-      );
-      expect(snapshot.kpis.firstWhere((kpi) => kpi.title == 'Ödeme Dağılımı').value, 'Ödeme dağılımı eksik');
-    });
+        snapshot = buildAdminAnalyticsSnapshot(
+          summary: _sampleSummaryWithInconsistentPaymentMix(),
+          periodSelection: const AnalyticsPeriodSelection.preset(
+            AnalyticsPresetPeriod.thisWeek,
+          ),
+          comparisonMode: AnalyticsComparisonMode.baselineSummary,
+          selectedInsight: null,
+        );
+        expect(
+          snapshot.kpis
+              .firstWhere((kpi) => kpi.title == 'Ödeme Dağılımı')
+              .value,
+          'Ödeme dağılımı eksik',
+        );
+      },
+    );
 
     test('payment mix handles cash-only and card-only states', () {
       AnalyticsSnapshot snapshot = buildAdminAnalyticsSnapshot(
@@ -661,31 +825,32 @@ void main() {
       );
     });
 
-    testWidgets('selected day chip is absent until a valid trend selection exists', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        await _buildApp(
-          analyticsState: AdminRevenueAnalyticsState(
-            summary: _sampleSummary(),
-            isLoading: false,
-            errorMessage: null,
-            periodSelection: const AnalyticsPeriodSelection.preset(
-              AnalyticsPresetPeriod.thisWeek,
+    testWidgets(
+      'selected day chip is absent until a valid trend selection exists',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          await _buildApp(
+            analyticsState: AdminRevenueAnalyticsState(
+              summary: _sampleSummary(),
+              isLoading: false,
+              errorMessage: null,
+              periodSelection: const AnalyticsPeriodSelection.preset(
+                AnalyticsPresetPeriod.thisWeek,
+              ),
+              savedViews: const <SavedAnalyticsView>[],
+              selectedSavedViewId: null,
+              lastExport: null,
+              isPrintViewOpen: false,
             ),
-            savedViews: const <SavedAnalyticsView>[],
-            selectedSavedViewId: null,
-            lastExport: null,
-            isPrintViewOpen: false,
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.textContaining('Seçili Gün:'), findsNothing);
-      expect(find.textContaining('null'), findsNothing);
-      expect(find.textContaining('NaN'), findsNothing);
-    });
+        expect(find.textContaining('Seçili Gün:'), findsNothing);
+        expect(find.textContaining('null'), findsNothing);
+        expect(find.textContaining('NaN'), findsNothing);
+      },
+    );
 
     testWidgets('data notes panel caps visible notes at three items', (
       WidgetTester tester,
@@ -743,7 +908,10 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('refunds not available in remote analytics'), findsNothing);
+      expect(
+        find.text('refunds not available in remote analytics'),
+        findsNothing,
+      );
     });
 
     test('same input keeps stable insight ordering', () {
@@ -1007,6 +1175,8 @@ RevenueSummary _sampleSummary({
   AnalyticsPeriodSelection selection = const AnalyticsPeriodSelection.preset(
     AnalyticsPresetPeriod.thisWeek,
   ),
+  SemanticSalesAnalytics semanticSalesAnalytics =
+      const SemanticSalesAnalytics.empty(),
 }) {
   final RevenueSelectedPeriodSummary selectedPeriodSummary =
       RevenueSelectedPeriodSummary(
@@ -1274,6 +1444,7 @@ RevenueSummary _sampleSummary({
       ],
     ),
     selectedPeriodSummary: selectedPeriodSummary,
+    semanticSalesAnalytics: semanticSalesAnalytics,
   );
 }
 
@@ -1317,6 +1488,7 @@ RevenueSummary _sampleSummaryWithUnavailablePaymentMix() {
         ),
       ),
     ),
+    semanticSalesAnalytics: base.semanticSalesAnalytics,
   );
 }
 
@@ -1467,7 +1639,8 @@ RevenueSummary _sampleSummaryWithManyNotes() {
     intelligenceInputs: RevenueIntelligenceInputs(
       todayOrderCount: base.intelligenceInputs.todayOrderCount,
       monthOrderCount: base.intelligenceInputs.monthOrderCount,
-      averageOrderValueThisWeek: base.intelligenceInputs.averageOrderValueThisWeek,
+      averageOrderValueThisWeek:
+          base.intelligenceInputs.averageOrderValueThisWeek,
       averageOrderValueThisMonth:
           base.intelligenceInputs.averageOrderValueThisMonth,
       thisWeekPaymentMix: base.intelligenceInputs.thisWeekPaymentMix,
@@ -1477,7 +1650,8 @@ RevenueSummary _sampleSummaryWithManyNotes() {
       thisMonthCancelledOrderCount:
           base.intelligenceInputs.thisMonthCancelledOrderCount,
       daypartDistribution: base.intelligenceInputs.daypartDistribution,
-      topProductsCurrentPeriod: base.intelligenceInputs.topProductsCurrentPeriod,
+      topProductsCurrentPeriod:
+          base.intelligenceInputs.topProductsCurrentPeriod,
       topProductsPreviousPeriod:
           base.intelligenceInputs.topProductsPreviousPeriod,
       dataQualityNotes: const <String>[
@@ -1509,6 +1683,7 @@ RevenueSummary _copySummary(
     insights: insights ?? base.insights,
     intelligenceInputs: intelligenceInputs ?? base.intelligenceInputs,
     selectedPeriodSummary: selectedPeriodSummary ?? base.selectedPeriodSummary,
+    semanticSalesAnalytics: base.semanticSalesAnalytics,
   );
 }
 
@@ -1716,5 +1891,134 @@ RevenueSummary _sampleCustomSummary() {
         ),
       ),
     ),
+    semanticSalesAnalytics: const SemanticSalesAnalytics.empty(),
+  );
+}
+
+SemanticSalesAnalytics _sampleSemanticSalesAnalytics() {
+  return const SemanticSalesAnalytics(
+    rootProducts: <SemanticRootProductAnalytics>[
+      SemanticRootProductAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        quantitySold: 18,
+        revenueMinor: 126000,
+      ),
+    ],
+    choiceSelections: <SemanticChoiceSelectionAnalytics>[
+      SemanticChoiceSelectionAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        groupId: 501,
+        groupName: 'Drink Choice',
+        itemProductId: 31,
+        itemName: 'Tea',
+        selectionCount: 12,
+        totalSelectedQuantity: 12,
+        distributionPercent: 66.7,
+        trend: <SemanticAnalyticsTrendPoint>[],
+      ),
+    ],
+    addedItems: <SemanticItemBehaviorAnalytics>[
+      SemanticItemBehaviorAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        itemProductId: 44,
+        itemName: 'Hash Brown',
+        occurrenceCount: 7,
+        totalQuantity: 7,
+        revenueMinor: 1400,
+        percentageOfRootSales: 38.9,
+      ),
+    ],
+    removedItems: <SemanticItemBehaviorAnalytics>[
+      SemanticItemBehaviorAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        itemProductId: 45,
+        itemName: 'Beans',
+        occurrenceCount: 9,
+        totalQuantity: 9,
+        revenueMinor: 0,
+        percentageOfRootSales: 50,
+      ),
+    ],
+    chargeReasonBreakdown: <SemanticChargeReasonAnalytics>[
+      SemanticChargeReasonAnalytics(
+        chargeReason: ModifierChargeReason.extraAdd,
+        eventCount: 7,
+        totalQuantity: 7,
+        revenueMinor: 1400,
+      ),
+      SemanticChargeReasonAnalytics(
+        chargeReason: ModifierChargeReason.paidSwap,
+        eventCount: 2,
+        totalQuantity: 2,
+        revenueMinor: 300,
+      ),
+      SemanticChargeReasonAnalytics(
+        chargeReason: ModifierChargeReason.freeSwap,
+        eventCount: 5,
+        totalQuantity: 5,
+        revenueMinor: 0,
+      ),
+    ],
+    bundleVariants: <SemanticBundleVariantAnalytics>[
+      SemanticBundleVariantAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        variantKey: 'variant-1',
+        orderCount: 8,
+        revenueMinor: 56000,
+        chosenItemProductIds: <int>[31],
+        chosenItemNames: <String>['Tea'],
+        removedItemProductIds: <int>[45],
+        removedItemNames: <String>['Beans'],
+        addedItemProductIds: <int>[44],
+        addedItemNames: <String>['Hash Brown'],
+      ),
+    ],
+  );
+}
+
+SemanticSalesAnalytics _sampleFallbackSemanticSalesAnalytics() {
+  return const SemanticSalesAnalytics(
+    rootProducts: <SemanticRootProductAnalytics>[
+      SemanticRootProductAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        quantitySold: 4,
+        revenueMinor: 28000,
+      ),
+    ],
+    choiceSelections: <SemanticChoiceSelectionAnalytics>[
+      SemanticChoiceSelectionAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        groupId: 501,
+        groupName: 'Group #501',
+        itemProductId: 31,
+        itemName: 'Product 31',
+        selectionCount: 3,
+        totalSelectedQuantity: 3,
+        distributionPercent: 75,
+        trend: <SemanticAnalyticsTrendPoint>[],
+      ),
+    ],
+    removedItems: <SemanticItemBehaviorAnalytics>[
+      SemanticItemBehaviorAnalytics(
+        rootProductId: 10,
+        rootProductName: 'Set 5 Breakfast',
+        itemProductId: 45,
+        itemName: 'Product 45',
+        occurrenceCount: 2,
+        totalQuantity: 2,
+        revenueMinor: 0,
+        percentageOfRootSales: 50,
+      ),
+    ],
+    dataQualityNotes: <String>[
+      'Choice-group analytics for root product 10 are using archived group 501 from persisted semantic modifiers because the current configuration no longer contains that group.',
+    ],
   );
 }

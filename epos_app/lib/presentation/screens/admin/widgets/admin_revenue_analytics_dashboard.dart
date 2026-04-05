@@ -12,10 +12,12 @@ import '../../../../domain/models/analytics/analytics_snapshot.dart';
 import '../../../../domain/models/analytics/insight.dart';
 import '../../../../domain/models/analytics/saved_analytics_view.dart';
 import '../../../../domain/models/daily_revenue_point.dart';
+import '../../../../domain/models/order_modifier.dart';
 import '../../../../domain/models/revenue_comparison.dart';
 import '../../../../domain/models/revenue_insights.dart';
 import '../../../../domain/models/revenue_intelligence_inputs.dart';
 import '../../../../domain/models/revenue_summary.dart';
+import '../../../../domain/models/semantic_sales_analytics.dart';
 
 const ValueKey<String> adminAnalyticsDashboardKey = ValueKey<String>(
   'admin_analytics_dashboard',
@@ -35,8 +37,12 @@ const ValueKey<String> adminAnalyticsCopySnapshotButtonKey = ValueKey<String>(
 const ValueKey<String> adminAnalyticsSecondaryInsightsKey = ValueKey<String>(
   'admin_analytics_secondary_insights',
 );
-const ValueKey<String> adminAnalyticsSecondaryInsightCardKey =
-    ValueKey<String>('admin_analytics_secondary_insight_card');
+const ValueKey<String> adminAnalyticsSecondaryInsightCardKey = ValueKey<String>(
+  'admin_analytics_secondary_insight_card',
+);
+const ValueKey<String> adminAnalyticsSemanticSectionKey = ValueKey<String>(
+  'admin_analytics_semantic_section',
+);
 
 class AdminRevenueAnalyticsDashboard extends StatelessWidget {
   const AdminRevenueAnalyticsDashboard({
@@ -131,6 +137,8 @@ class AdminRevenueAnalyticsDashboard extends StatelessWidget {
     final String periodLabel = selected.selection.isCustom
         ? _dateRangeLabel(selected.startDate, selected.endDate)
         : _selectionLabel(selected.selection);
+    final SemanticSalesAnalytics semanticAnalytics =
+        summary.semanticSalesAnalytics;
     return Container(
       key: adminAnalyticsDashboardKey,
       padding: const EdgeInsets.all(AppSizes.spacingLg),
@@ -186,9 +194,7 @@ class AdminRevenueAnalyticsDashboard extends StatelessWidget {
                 comparison: selected.averageOrderValue,
                 selection: selected.selection,
               ),
-              _PaymentMixKpiCard(
-                mix: paymentMix,
-              ),
+              _PaymentMixKpiCard(mix: paymentMix),
             ],
           ),
           const SizedBox(height: AppSizes.spacingLg),
@@ -254,9 +260,15 @@ class AdminRevenueAnalyticsDashboard extends StatelessWidget {
                         .toList(growable: false),
                   ),
           ),
+          if (!semanticAnalytics.isEmpty) ...<Widget>[
+            const SizedBox(height: AppSizes.spacingLg),
+            _SemanticAnalyticsSection(analytics: semanticAnalytics),
+          ],
           if (summary.dataQualityNotes.isNotEmpty) ...<Widget>[
             const SizedBox(height: AppSizes.spacingLg),
-            _DataNotesBlock(notes: _localizedDataNotes(summary.dataQualityNotes)),
+            _DataNotesBlock(
+              notes: _localizedDataNotes(summary.dataQualityNotes),
+            ),
           ],
         ],
       ),
@@ -328,10 +340,7 @@ class AdminRevenueAnalyticsErrorView extends StatelessWidget {
           const SizedBox(height: AppSizes.spacingSm),
           Text(message),
           const SizedBox(height: AppSizes.spacingLg),
-          FilledButton(
-            onPressed: onRetry,
-            child: const Text('Yeniden Dene'),
-          ),
+          FilledButton(onPressed: onRetry, child: const Text('Yeniden Dene')),
         ],
       ),
     );
@@ -339,10 +348,7 @@ class AdminRevenueAnalyticsErrorView extends StatelessWidget {
 }
 
 class AdminRevenueAnalyticsEmptyView extends StatelessWidget {
-  const AdminRevenueAnalyticsEmptyView({
-    this.statusMessage,
-    super.key,
-  });
+  const AdminRevenueAnalyticsEmptyView({this.statusMessage, super.key});
 
   final String? statusMessage;
 
@@ -453,9 +459,7 @@ class _HeroHeader extends StatelessWidget {
                       const SizedBox(height: AppSizes.spacingSm),
                       Text(
                         statusMessage!,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                        ),
+                        style: const TextStyle(color: AppColors.textSecondary),
                       ),
                     ],
                   ],
@@ -480,7 +484,8 @@ class _HeroHeader extends StatelessWidget {
             children: <Widget>[
               _PeriodChip(
                 label: 'Bugün',
-                selected: periodSelection ==
+                selected:
+                    periodSelection ==
                     const AnalyticsPeriodSelection.preset(
                       AnalyticsPresetPeriod.today,
                     ),
@@ -488,7 +493,8 @@ class _HeroHeader extends StatelessWidget {
               ),
               _PeriodChip(
                 label: 'Bu Hafta',
-                selected: periodSelection ==
+                selected:
+                    periodSelection ==
                     const AnalyticsPeriodSelection.preset(
                       AnalyticsPresetPeriod.thisWeek,
                     ),
@@ -496,7 +502,8 @@ class _HeroHeader extends StatelessWidget {
               ),
               _PeriodChip(
                 label: 'Bu Ay',
-                selected: periodSelection ==
+                selected:
+                    periodSelection ==
                     const AnalyticsPeriodSelection.preset(
                       AnalyticsPresetPeriod.thisMonth,
                     ),
@@ -620,10 +627,7 @@ class _ActionsMenu extends StatelessWidget {
           children: const <Widget>[
             Icon(Icons.more_horiz_rounded, size: 18),
             SizedBox(width: AppSizes.spacingXs),
-            Text(
-              'İşlemler',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
+            Text('İşlemler', style: TextStyle(fontWeight: FontWeight.w700)),
           ],
         ),
       ),
@@ -669,10 +673,7 @@ class _KpiCard extends StatelessWidget {
           const SizedBox(height: AppSizes.spacingSm),
           Text(
             trend.label,
-            style: TextStyle(
-              color: trend.color,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: trend.color, fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -681,9 +682,7 @@ class _KpiCard extends StatelessWidget {
 }
 
 class _PaymentMixKpiCard extends StatelessWidget {
-  const _PaymentMixKpiCard({
-    required this.mix,
-  });
+  const _PaymentMixKpiCard({required this.mix});
 
   final _PaymentMixDisplay mix;
 
@@ -739,9 +738,7 @@ class _PaymentMixKpiCard extends StatelessWidget {
 }
 
 class _PrimaryMessageCard extends StatelessWidget {
-  const _PrimaryMessageCard({
-    required this.display,
-  });
+  const _PrimaryMessageCard({required this.display});
 
   final _PrimaryMessageDisplay display;
 
@@ -797,6 +794,258 @@ class _PrimaryMessageCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SemanticAnalyticsSection extends StatelessWidget {
+  const _SemanticAnalyticsSection({required this.analytics});
+
+  final SemanticSalesAnalytics analytics;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<SemanticRootProductAnalytics> topProducts = analytics
+        .rootProducts
+        .take(3)
+        .toList(growable: false);
+    final List<SemanticChoiceSelectionAnalytics> topChoices = analytics
+        .choiceSelections
+        .take(4)
+        .toList(growable: false);
+    final List<SemanticItemBehaviorAnalytics> removedItems = analytics
+        .removedItems
+        .take(3)
+        .toList(growable: false);
+    final List<SemanticItemBehaviorAnalytics> addedItems = analytics.addedItems
+        .take(3)
+        .toList(growable: false);
+    final List<SemanticBundleVariantAnalytics> variants = analytics
+        .bundleVariants
+        .take(3)
+        .toList(growable: false);
+
+    final int extraRevenueMinor = _chargeReasonRevenue(
+      analytics,
+      ModifierChargeReason.extraAdd,
+    );
+    final int paidSwapRevenueMinor = _chargeReasonRevenue(
+      analytics,
+      ModifierChargeReason.paidSwap,
+    );
+    final int freeSwapCount = _chargeReasonEvents(
+      analytics,
+      ModifierChargeReason.freeSwap,
+    );
+    final int paidSwapCount = _chargeReasonEvents(
+      analytics,
+      ModifierChargeReason.paidSwap,
+    );
+
+    return _Panel(
+      key: adminAnalyticsSemanticSectionKey,
+      title: 'Menü Davranışı',
+      subtitle: 'Set satışları, seçim dağılımı ve ek gelir sinyalleri',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: AppSizes.spacingMd,
+            runSpacing: AppSizes.spacingMd,
+            children: <Widget>[
+              _SemanticInsightCard(
+                title: 'Ürün Performansı',
+                emptyMessage: 'Semantic set satışı henüz yok.',
+                items: topProducts
+                    .map(
+                      (
+                        SemanticRootProductAnalytics entry,
+                      ) => _SemanticInsightLine(
+                        title: _semanticDisplayLabel(entry.rootProductName),
+                        detail:
+                            '${entry.quantitySold} satış · ${CurrencyFormatter.fromMinor(entry.revenueMinor)}',
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+              _SemanticInsightCard(
+                title: 'Seçim Dağılımı',
+                emptyMessage: 'Henüz kaydedilmiş grup seçimi yok.',
+                items: topChoices
+                    .map(
+                      (
+                        SemanticChoiceSelectionAnalytics entry,
+                      ) => _SemanticInsightLine(
+                        title:
+                            '${_semanticDisplayLabel(entry.groupName)}: ${_semanticDisplayLabel(entry.itemName)}',
+                        detail:
+                            '%${_formatPercent(entry.distributionPercent)} · ${entry.selectionCount} sipariş',
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+              _SemanticInsightCard(
+                title: 'Davranış İçgörüleri',
+                emptyMessage: 'Ek veya çıkarma davranışı oluşmadı.',
+                items: <_SemanticInsightLine>[
+                  ...removedItems.map(
+                    (
+                      SemanticItemBehaviorAnalytics entry,
+                    ) => _SemanticInsightLine(
+                      title:
+                          '${_semanticDisplayLabel(entry.itemName)} çıkarıldı',
+                      detail:
+                          '%${_formatPercent(entry.percentageOfRootSales)} · ${entry.occurrenceCount} sipariş',
+                    ),
+                  ),
+                  ...addedItems.map(
+                    (
+                      SemanticItemBehaviorAnalytics entry,
+                    ) => _SemanticInsightLine(
+                      title: '${_semanticDisplayLabel(entry.itemName)} eklendi',
+                      detail:
+                          '${entry.occurrenceCount} sipariş · ${CurrencyFormatter.fromMinor(entry.revenueMinor)}',
+                    ),
+                  ),
+                ],
+              ),
+              _SemanticInsightCard(
+                title: 'Ek Gelir',
+                emptyMessage: 'Ek gelir davranışı henüz yok.',
+                items: <_SemanticInsightLine>[
+                  if (extraRevenueMinor > 0)
+                    _SemanticInsightLine(
+                      title: 'Ek ürün geliri',
+                      detail: CurrencyFormatter.fromMinor(extraRevenueMinor),
+                    ),
+                  if (paidSwapRevenueMinor > 0)
+                    _SemanticInsightLine(
+                      title: 'Ücretli değişim geliri',
+                      detail: CurrencyFormatter.fromMinor(paidSwapRevenueMinor),
+                    ),
+                  if (freeSwapCount > 0 || paidSwapCount > 0)
+                    _SemanticInsightLine(
+                      title: 'Değişim sayısı',
+                      detail:
+                          '$freeSwapCount ücretsiz · $paidSwapCount ücretli',
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSizes.spacingLg),
+          _SemanticInsightCard(
+            title: 'Öne Çıkan Varyantlar',
+            emptyMessage: 'Varyant paterni oluşmadı.',
+            width: double.infinity,
+            items: variants
+                .map(
+                  (
+                    SemanticBundleVariantAnalytics entry,
+                  ) => _SemanticInsightLine(
+                    title: _bundleVariantSummary(entry),
+                    detail:
+                        '${entry.orderCount} sipariş · ${CurrencyFormatter.fromMinor(entry.revenueMinor)}',
+                  ),
+                )
+                .toList(growable: false),
+          ),
+          if (analytics.dataQualityNotes.isNotEmpty) ...<Widget>[
+            const SizedBox(height: AppSizes.spacingLg),
+            _DataNotesBlock(
+              notes: _localizedDataNotes(analytics.dataQualityNotes),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SemanticInsightCard extends StatelessWidget {
+  const _SemanticInsightCard({
+    required this.title,
+    required this.items,
+    required this.emptyMessage,
+    this.width = 320,
+  });
+
+  final String title;
+  final List<_SemanticInsightLine> items;
+  final String emptyMessage;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(AppSizes.spacingLg),
+      decoration: _panelDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: AppSizes.spacingMd),
+          if (items.isEmpty)
+            _MutedState(message: emptyMessage)
+          else
+            Column(
+              children: items
+                  .map(
+                    (_SemanticInsightLine item) => Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: AppSizes.spacingSm,
+                      ),
+                      child: _SemanticInsightRow(item: item),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SemanticInsightRow extends StatelessWidget {
+  const _SemanticInsightRow({required this.item});
+
+  final _SemanticInsightLine item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          item.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: AppSizes.spacingXs),
+        Text(
+          item.detail,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SemanticInsightLine {
+  const _SemanticInsightLine({required this.title, required this.detail});
+
+  final String title;
+  final String detail;
 }
 
 class _PaymentMixLine extends StatelessWidget {
@@ -875,7 +1124,8 @@ class _DailyBarChart extends StatelessWidget {
                           CurrencyFormatter.fromMinor(point.revenueMinor),
                           style: TextStyle(
                             fontSize: 11,
-                            color: selectedPoint != null &&
+                            color:
+                                selectedPoint != null &&
                                     _isSameDate(selectedPoint!.date, point.date)
                                 ? AppColors.primary
                                 : AppColors.textSecondary,
@@ -890,14 +1140,16 @@ class _DailyBarChart extends StatelessWidget {
                           width: double.infinity,
                           height: maxRevenue == 0
                               ? 12
-                              : math.max(
-                                  12,
-                                  ((point.revenueMinor / maxRevenue) * 160)
-                                      .round(),
-                                )
-                                  .toDouble(),
+                              : math
+                                    .max(
+                                      12,
+                                      ((point.revenueMinor / maxRevenue) * 160)
+                                          .round(),
+                                    )
+                                    .toDouble(),
                           decoration: BoxDecoration(
-                            color: selectedPoint != null &&
+                            color:
+                                selectedPoint != null &&
                                     _isSameDate(selectedPoint!.date, point.date)
                                 ? AppColors.primary
                                 : AppColors.primaryLight,
@@ -927,10 +1179,7 @@ class _DailyBarChart extends StatelessWidget {
 }
 
 class _TrendSummaryChip extends StatelessWidget {
-  const _TrendSummaryChip({
-    required this.label,
-    required this.value,
-  });
+  const _TrendSummaryChip({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -1034,15 +1283,17 @@ class _DataNotesBlock extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSizes.spacingSm),
-          ...notes.take(3).map(
-            (String note) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '• $note',
-                style: const TextStyle(color: AppColors.textSecondary),
+          ...notes
+              .take(3)
+              .map(
+                (String note) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '• $note',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
               ),
-            ),
-          ),
         ],
       ),
     );
@@ -1123,9 +1374,7 @@ class _PeriodChip extends StatelessWidget {
         color: selected ? Colors.white : AppColors.textPrimary,
         fontWeight: FontWeight.w700,
       ),
-      side: BorderSide(
-        color: selected ? AppColors.primary : AppColors.border,
-      ),
+      side: BorderSide(color: selected ? AppColors.primary : AppColors.border),
       showCheckmark: false,
     );
   }
@@ -1136,10 +1385,7 @@ class _LoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 250,
-      child: _LoadingPanel(height: 132),
-    );
+    return const SizedBox(width: 250, child: _LoadingPanel(height: 132));
   }
 }
 
@@ -1161,10 +1407,7 @@ class _LoadingPanel extends StatelessWidget {
 }
 
 class _LoadingBlock extends StatelessWidget {
-  const _LoadingBlock({
-    required this.height,
-    required this.width,
-  });
+  const _LoadingBlock({required this.height, required this.width});
 
   final double height;
   final double width;
@@ -1192,10 +1435,7 @@ enum _DashboardAction {
 }
 
 class _TrendLine {
-  const _TrendLine({
-    required this.label,
-    required this.color,
-  });
+  const _TrendLine({required this.label, required this.color});
 
   final String label;
   final Color color;
@@ -1307,17 +1547,15 @@ List<Insight> orderAdminAnalyticsInsights(
       remaining.add(insight);
     }
   }
-  prioritized.sort(
-    (Insight left, Insight right) {
-      final int priorityComparison = priorityCodes
-          .indexOf(left.code)
-          .compareTo(priorityCodes.indexOf(right.code));
-      if (priorityComparison != 0) {
-        return priorityComparison;
-      }
-      return _deterministicInsightSort(left, right);
-    },
-  );
+  prioritized.sort((Insight left, Insight right) {
+    final int priorityComparison = priorityCodes
+        .indexOf(left.code)
+        .compareTo(priorityCodes.indexOf(right.code));
+    if (priorityComparison != 0) {
+      return priorityComparison;
+    }
+    return _deterministicInsightSort(left, right);
+  });
   remaining.sort(_deterministicInsightSort);
   return <Insight>[...prioritized, ...remaining];
 }
@@ -1485,7 +1723,8 @@ AnalyticsExport buildAdminAnalyticsExport({
     title: 'EPOS Analiz Raporu',
     periodLabel: snapshot.periodLabel,
     kpis: <String, dynamic>{
-      for (final AnalyticsSnapshotKpi kpi in snapshot.kpis) kpi.title: kpi.value,
+      for (final AnalyticsSnapshotKpi kpi in snapshot.kpis)
+        kpi.title: kpi.value,
     },
     highlights: snapshot.insights
         .map((Insight insight) => '${insight.title}: ${insight.message}')
@@ -1512,10 +1751,7 @@ Insight? _primaryMessageInsight(
   return insights.first;
 }
 
-List<Insight> _secondaryInsights(
-  List<Insight> insights,
-  Insight? primary,
-) {
+List<Insight> _secondaryInsights(List<Insight> insights, Insight? primary) {
   final List<String> preferredCodes = <String>[
     'period_revenue_delta',
     'period_order_count_delta',
@@ -1622,8 +1858,9 @@ _TrendLine _trendLine(
     );
   }
   final String direction = comparison.absoluteChange > 0 ? 'artış' : 'düşüş';
-  final Color color =
-      comparison.absoluteChange > 0 ? AppColors.success : AppColors.error;
+  final Color color = comparison.absoluteChange > 0
+      ? AppColors.success
+      : AppColors.error;
   return _TrendLine(
     label:
         '%${_formatPercent(percentage.abs())} $direction · ${_comparisonReference(selection)}',
@@ -1905,7 +2142,10 @@ bool _isMeaningfulInsight(Insight insight) {
     case 'period_cancelled_order_delta':
       final int current = _evidenceInt(evidence, 'current_value');
       final int previous = _evidenceInt(evidence, 'previous_value');
-      final int absoluteChange = _evidenceInt(evidence, 'absolute_change').abs();
+      final int absoluteChange = _evidenceInt(
+        evidence,
+        'absolute_change',
+      ).abs();
       if (previous == 0) {
         return false;
       }
@@ -1961,21 +2201,22 @@ num? _evidenceNum(Map<String, dynamic> evidence, String key) {
 }
 
 bool _isBeforeDate(DateTime left, DateTime right) {
-  return DateTime.utc(left.year, left.month, left.day).isBefore(
-    DateTime.utc(right.year, right.month, right.day),
-  );
+  return DateTime.utc(
+    left.year,
+    left.month,
+    left.day,
+  ).isBefore(DateTime.utc(right.year, right.month, right.day));
 }
 
 bool _isAfterDate(DateTime left, DateTime right) {
-  return DateTime.utc(left.year, left.month, left.day).isAfter(
-    DateTime.utc(right.year, right.month, right.day),
-  );
+  return DateTime.utc(
+    left.year,
+    left.month,
+    left.day,
+  ).isAfter(DateTime.utc(right.year, right.month, right.day));
 }
 
-Insight _localizeInsight(
-  Insight insight,
-  AnalyticsPeriodSelection selection,
-) {
+Insight _localizeInsight(Insight insight, AnalyticsPeriodSelection selection) {
   return Insight(
     code: insight.code,
     severity: insight.severity,
@@ -2079,7 +2320,10 @@ String _localizedInsightMessage(
       return 'En güçlü gün verisi bulunmuyor.';
     case 'peak_hours':
       final int? startHour = _evidenceNum(evidence, 'start_hour')?.toInt();
-      final int? endHour = _evidenceNum(evidence, 'end_hour_exclusive')?.toInt();
+      final int? endHour = _evidenceNum(
+        evidence,
+        'end_hour_exclusive',
+      )?.toInt();
       if (startHour == null || endHour == null) {
         return 'Yoğun saat verisi bulunmuyor.';
       }
@@ -2138,11 +2382,68 @@ String _localizedDeltaSentence({
   return buffer.toString();
 }
 
+int _chargeReasonRevenue(
+  SemanticSalesAnalytics analytics,
+  ModifierChargeReason reason,
+) {
+  for (final SemanticChargeReasonAnalytics entry
+      in analytics.chargeReasonBreakdown) {
+    if (entry.chargeReason == reason) {
+      return entry.revenueMinor;
+    }
+  }
+  return 0;
+}
+
+int _chargeReasonEvents(
+  SemanticSalesAnalytics analytics,
+  ModifierChargeReason reason,
+) {
+  for (final SemanticChargeReasonAnalytics entry
+      in analytics.chargeReasonBreakdown) {
+    if (entry.chargeReason == reason) {
+      return entry.eventCount;
+    }
+  }
+  return 0;
+}
+
+String _bundleVariantSummary(SemanticBundleVariantAnalytics variant) {
+  String formatItems(String label, List<String> items) {
+    if (items.isEmpty) {
+      return '$label yok';
+    }
+    return '$label ${items.map(_semanticDisplayLabel).join(', ')}';
+  }
+
+  return <String>[
+    formatItems('Seçim', variant.chosenItemNames),
+    formatItems('Çıkarma', variant.removedItemNames),
+    formatItems('Ek', variant.addedItemNames),
+  ].join(' · ');
+}
+
 List<String> _localizedDataNotes(List<String> notes) {
   return notes.map(_localizeDataNote).toList(growable: false);
 }
 
 String _localizeDataNote(String note) {
+  if (note.startsWith('Choice-group analytics for root product ') &&
+      note.contains('current configuration no longer contains that group')) {
+    return 'Bazı geçmiş seçim grupları mevcut menüde bulunmadığı için arşivlenmiş grup kimliğiyle gösteriliyor.';
+  }
+  if (note.startsWith('Choice-group analytics for root product ') &&
+      note.contains(
+        'current configuration no longer matches that historical membership',
+      )) {
+    return 'Bazı geçmiş seçimler mevcut üyelik yapısı değiştiği için satış anındaki kayıtlarla gösteriliyor.';
+  }
+  if (note.startsWith('Legacy semantic modifier rows for root product ') &&
+      note.contains(
+        'missing source group IDs and cannot be fully grouped after the live configuration was removed',
+      )) {
+    return 'Eski semantic satışlarda kaynak grup kimliği bulunmadığı için kaldırılmış gruplar tam olarak ayrıştırılamadı.';
+  }
   return switch (note) {
     'refunds not available in remote analytics' =>
       'İade verileri uzaktan analiz sistemine dahil değildir.',
@@ -2154,10 +2455,30 @@ String _localizeDataNote(String note) {
       'Bazı iptal kayıtlarında güvenilir iptal zamanı bulunmadığı için dönem ataması sınırlıdır.',
     'cancelled attribution unavailable for some mirror rows because cancelled_at was invalid' =>
       'Bazı iptal kayıtlarında geçersiz iptal zamanı bulunduğu için dönem ataması sınırlıdır.',
+    'Legacy semantic modifier rows without persisted source group IDs were inferred from the current semantic configuration.' =>
+      'Eski semantic satışlarda kaynak grup kimliği saklanmadığı için bazı seçimler mevcut menü yapılandırmasından türetildi.',
     'Insufficient data for reliable comparison' =>
       'Güvenilir karşılaştırma için yeterli veri bulunmuyor.',
     _ => _sanitizeDisplayText(note),
   };
+}
+
+String _semanticDisplayLabel(String value) {
+  final String cleaned = _sanitizeDisplayText(value).trim();
+  if (cleaned.isEmpty) {
+    return 'Arşivlenmiş öğe';
+  }
+  final RegExpMatch? groupMatch = RegExp(r'^Group #(\d+)$').firstMatch(cleaned);
+  if (groupMatch != null) {
+    return 'Arşiv grup #${groupMatch.group(1)}';
+  }
+  final RegExpMatch? productMatch = RegExp(
+    r'^Product (\d+)$',
+  ).firstMatch(cleaned);
+  if (productMatch != null) {
+    return 'Ürün #${productMatch.group(1)}';
+  }
+  return cleaned;
 }
 
 String _selectionLabel(AnalyticsPeriodSelection selection) {
@@ -2192,7 +2513,9 @@ String _formatDateTimeTr(DateTime value) {
 }
 
 String _sanitizeDisplayText(String value) {
-  if (value.contains('NaN') || value.contains('Infinity') || value.contains('null')) {
+  if (value.contains('NaN') ||
+      value.contains('Infinity') ||
+      value.contains('null')) {
     return value
         .replaceAll('NaN', '0')
         .replaceAll('Infinity', '0')

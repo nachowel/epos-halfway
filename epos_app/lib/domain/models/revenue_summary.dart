@@ -4,6 +4,7 @@ import 'hourly_distribution.dart';
 import 'revenue_comparison.dart';
 import 'revenue_intelligence_inputs.dart';
 import 'revenue_insights.dart';
+import 'semantic_sales_analytics.dart';
 import 'weekly_revenue_point.dart';
 
 class RevenueSummary {
@@ -20,6 +21,7 @@ class RevenueSummary {
     required this.insights,
     required this.intelligenceInputs,
     required this.selectedPeriodSummary,
+    this.semanticSalesAnalytics = const SemanticSalesAnalytics.empty(),
   });
 
   final DateTime generatedAt;
@@ -34,6 +36,7 @@ class RevenueSummary {
   final RevenueInsights insights;
   final RevenueIntelligenceInputs intelligenceInputs;
   final RevenueSelectedPeriodSummary selectedPeriodSummary;
+  final SemanticSalesAnalytics semanticSalesAnalytics;
 
   bool get hasPaidData {
     return dailyTrend.any(

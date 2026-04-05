@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/errors/exceptions.dart';
+import '../../domain/models/breakfast_cart_selection.dart';
+import '../../domain/models/meal_customization.dart';
 import '../../domain/models/order_modifier.dart';
 import '../../domain/models/product.dart';
 import 'cart_models.dart';
@@ -38,19 +40,56 @@ class CartNotifier extends StateNotifier<CartState> {
     Product product, {
     int quantity = 1,
     List<CartModifier> modifiers = const <CartModifier>[],
+    BreakfastCartSelection? breakfastSelection,
+    MealCustomizationCartSelection? mealCustomizationSelection,
   }) {
     if (quantity <= 0) {
       return;
     }
+    if (breakfastSelection != null && modifiers.isNotEmpty) {
+      throw ValidationException(
+        'Flat modifiers and semantic bundle state cannot share one cart line.',
+      );
+    }
+    if (mealCustomizationSelection != null &&
+        (breakfastSelection != null || modifiers.isNotEmpty)) {
+      throw ValidationException(
+        'Meal customization cannot share a cart line with breakfast or flat modifiers.',
+      );
+    }
     _ensureProductAvailableForSale(product);
+    if (mealCustomizationSelection != null) {
+      final int existingIndex = state.items.indexWhere((CartItem item) {
+        final MealCustomizationCartSelection? existingSelection =
+            item.mealCustomizationSelection;
+        return existingSelection != null &&
+            item.productId == product.id &&
+            existingSelection.stableIdentityKey ==
+                mealCustomizationSelection.stableIdentityKey;
+      });
+      if (existingIndex >= 0) {
+        final List<CartItem> items = List<CartItem>.from(state.items);
+        final CartItem existing = items[existingIndex];
+        items[existingIndex] = existing.copyWith(
+          quantity: existing.quantity + quantity,
+        );
+        state = state.copyWith(items: items);
+        return;
+      }
+    }
     final newItem = CartItem(
       localId: _uuidGenerator.v4(),
       productId: product.id,
       productName: product.name,
       unitPriceMinor: product.priceMinor,
-      hasModifiers: product.hasModifiers,
+      hasModifiers:
+          product.hasModifiers ||
+          breakfastSelection != null ||
+          mealCustomizationSelection != null,
       quantity: quantity,
       modifiers: modifiers,
+      breakfastSelection: breakfastSelection,
+      mealCustomizationSelection: mealCustomizationSelection,
     );
     state = state.copyWith(items: <CartItem>[...state.items, newItem]);
   }

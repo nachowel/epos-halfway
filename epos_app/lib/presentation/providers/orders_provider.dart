@@ -5,25 +5,45 @@ import '../../core/constants/app_strings.dart';
 import '../../core/errors/error_mapper.dart';
 import '../../core/errors/exceptions.dart';
 import '../../core/providers/app_providers.dart';
+import '../../data/repositories/breakfast_configuration_repository.dart';
+import '../../domain/models/breakfast_line_edit.dart';
+import '../../domain/models/breakfast_cooking_instruction.dart';
+import '../../domain/models/breakfast_rebuild.dart';
 import '../../domain/models/checkout_item.dart';
 import '../../domain/models/checkout_modifier.dart';
+import '../../domain/models/meal_customization.dart';
 import '../../domain/models/open_order_summary.dart';
 import '../../domain/models/order_modifier.dart';
 import '../../domain/models/payment.dart';
 import '../../domain/models/payment_adjustment.dart';
 import '../../domain/models/print_job.dart';
+import '../../domain/models/product.dart';
 import '../../domain/models/transaction.dart';
 import '../../domain/models/transaction_line.dart';
 import '../../domain/models/user.dart';
+import '../../domain/services/breakfast_requested_state_mapper.dart';
+import '../../domain/services/meal_customization_pos_service.dart';
+import '../../domain/services/order_service.dart';
 import 'auth_provider.dart';
 import 'cart_models.dart';
 import 'cart_provider.dart';
 
 class OrderDetailLine {
-  const OrderDetailLine({required this.line, required this.modifiers});
+  const OrderDetailLine({
+    required this.line,
+    required this.modifiers,
+    this.isBreakfastConfigurable = false,
+    this.isMealCustomizationConfigurable = false,
+    this.isLegacyMealCustomizationLine = false,
+    this.mealCustomizationLegacyMessage,
+  });
 
   final TransactionLine line;
   final List<OrderModifier> modifiers;
+  final bool isBreakfastConfigurable;
+  final bool isMealCustomizationConfigurable;
+  final bool isLegacyMealCustomizationLine;
+  final String? mealCustomizationLegacyMessage;
 }
 
 class OrderDetails {
@@ -42,6 +62,58 @@ class OrderDetails {
   final List<OrderDetailLine> lines;
   final PrintJob? kitchenPrintJob;
   final PrintJob? receiptPrintJob;
+}
+
+class BreakfastAddableProduct {
+  const BreakfastAddableProduct({
+    required this.id,
+    required this.name,
+    required this.priceMinor,
+    required this.sortKey,
+    required this.isChoiceCapable,
+    required this.isSwapEligible,
+  });
+
+  final int id;
+  final String name;
+  final int priceMinor;
+  final int sortKey;
+  final bool isChoiceCapable;
+  final bool isSwapEligible;
+}
+
+class BreakfastEditorData {
+  const BreakfastEditorData({
+    required this.transaction,
+    required this.line,
+    required this.modifiers,
+    required this.configuration,
+    required this.requestedState,
+    required this.addableProducts,
+  });
+
+  final Transaction transaction;
+  final TransactionLine line;
+  final List<OrderModifier> modifiers;
+  final BreakfastSetConfiguration configuration;
+  final BreakfastRequestedState requestedState;
+  final List<BreakfastAddableProduct> addableProducts;
+}
+
+class MealCustomizationOrderEditorData {
+  const MealCustomizationOrderEditorData({
+    required this.transaction,
+    required this.line,
+    required this.product,
+    required this.rehydration,
+    required this.editorData,
+  });
+
+  final Transaction transaction;
+  final TransactionLine line;
+  final Product product;
+  final MealCustomizationRehydrationResult rehydration;
+  final MealCustomizationPosEditorData editorData;
 }
 
 class OrdersState {
@@ -227,6 +299,7 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
 
       _pendingIdempotencyKey = null;
       _ref.read(cartNotifierProvider.notifier).clearCart();
+      _ref.read(mealInsightsServiceProvider).invalidateSuggestionCache();
       await refreshOpenOrders();
       state = state.copyWith(
         selectedOrderId: transaction.id,
@@ -432,6 +505,8 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
 
   Future<OrderDetails?> getOrderDetails(int transactionId) async {
     try {
+      final BreakfastConfigurationRepository breakfastConfigurationRepository =
+          _ref.read(breakfastConfigurationRepositoryProvider);
       final Transaction? transaction = await _ref
           .read(orderServiceProvider)
           .getOrderById(transactionId);
@@ -447,12 +522,37 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
       final List<TransactionLine> lines = await _ref
           .read(orderServiceProvider)
           .getOrderLines(transactionId);
+      final transactionRepository = _ref.read(transactionRepositoryProvider);
       final List<OrderDetailLine> detailLines = await Future.wait(
         lines.map((TransactionLine line) async {
           final List<OrderModifier> modifiers = await _ref
               .read(orderServiceProvider)
               .getLineModifiers(line.id);
-          return OrderDetailLine(line: line, modifiers: modifiers);
+          final MealCustomizationPersistedSnapshotRecord? mealSnapshot =
+              await transactionRepository.getMealCustomizationSnapshotByLine(
+                line.id,
+              );
+          final bool isLegacyMealCustomizationLine =
+              mealSnapshot == null &&
+              await transactionRepository.isLegacyMealCustomizationLine(line.id);
+          final bool isBreakfastConfigurable =
+              transaction.status == TransactionStatus.draft &&
+              await breakfastConfigurationRepository.hasSetConfiguration(
+                line.productId,
+              );
+          final bool isMealCustomizationConfigurable =
+              transaction.status == TransactionStatus.draft &&
+              mealSnapshot != null;
+          return OrderDetailLine(
+            line: line,
+            modifiers: modifiers,
+            isBreakfastConfigurable: isBreakfastConfigurable,
+            isMealCustomizationConfigurable: isMealCustomizationConfigurable,
+            isLegacyMealCustomizationLine: isLegacyMealCustomizationLine,
+            mealCustomizationLegacyMessage: isLegacyMealCustomizationLine
+                ? 'This item was created before the new system and cannot be edited.'
+                : null,
+          );
         }),
       );
       final List<PrintJob> printJobs = await _ref
@@ -534,6 +634,257 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
     state = state.copyWith(errorMessage: null);
   }
 
+  Future<BreakfastEditorData?> loadBreakfastEditorData({
+    required int transactionId,
+    required int transactionLineId,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      return await _buildBreakfastEditorData(
+        transactionId: transactionId,
+        transactionLineId: transactionLineId,
+      );
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'breakfast_editor_load_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<BreakfastEditorData?> editBreakfastLine({
+    required int transactionId,
+    required int transactionLineId,
+    required BreakfastLineEdit edit,
+    required DateTime expectedTransactionUpdatedAt,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      final TransactionLine updatedLine = await _ref
+          .read(orderServiceProvider)
+          .editBreakfastLine(
+            transactionLineId: transactionLineId,
+            edit: edit,
+            expectedTransactionUpdatedAt: expectedTransactionUpdatedAt,
+          );
+      return await _buildBreakfastEditorData(
+        transactionId: transactionId,
+        transactionLineId: updatedLine.id,
+      );
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'breakfast_editor_apply_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+            'edit_type': edit.type.name,
+            'item_product_id': edit.itemProductId,
+            'group_id': edit.groupId,
+            'selected_item_product_id': edit.selectedItemProductId,
+            'quantity': edit.quantity,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<MealCustomizationOrderEditorData?> loadMealCustomizationEditorData({
+    required int transactionId,
+    required int transactionLineId,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      final orderService = _ref.read(orderServiceProvider);
+      final Transaction? transaction = await orderService.getOrderById(
+        transactionId,
+      );
+      if (transaction == null) {
+        throw NotFoundException('Transaction not found: $transactionId');
+      }
+      final TransactionLine line = await _requireOrderLine(
+        orderService: orderService,
+        transactionId: transactionId,
+        transactionLineId: transactionLineId,
+      );
+      final transactionRepository = _ref.read(transactionRepositoryProvider);
+      final MealCustomizationPersistedSnapshotRecord? snapshotRecord =
+          await transactionRepository.getMealCustomizationSnapshotByLine(
+            line.id,
+          );
+      if (snapshotRecord == null) {
+        throw MealCustomizationLineNotEditableException(
+          reason: MealCustomizationEditBlockedReason.legacySnapshotMissing,
+          transactionLineId: line.id,
+          transactionId: transaction.id,
+        );
+      }
+
+      final Product product =
+          await _ref.read(productRepositoryProvider).getById(line.productId) ??
+          (throw NotFoundException('Product not found: ${line.productId}'));
+      final MealCustomizationPosService posService = _ref.read(
+        mealCustomizationPosServiceProvider,
+      );
+      final MealCustomizationRehydrationResult rehydration = posService
+          .rehydrateSnapshot(
+            snapshot: snapshotRecord.snapshot,
+            lineQuantity: line.quantity,
+          );
+      final MealCustomizationPosEditorData editorData =
+          await posService.loadEditorDataForPersistedProfile(
+            product: product,
+            profileId: snapshotRecord.profileId,
+            initialState: rehydration.editorState,
+          );
+      return MealCustomizationOrderEditorData(
+        transaction: transaction,
+        line: line,
+        product: product,
+        rehydration: rehydration,
+        editorData: editorData,
+      );
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'meal_customization_editor_load_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<TransactionLine?> editMealCustomizationLine({
+    required int transactionId,
+    required int transactionLineId,
+    required MealCustomizationRequest request,
+    required DateTime expectedTransactionUpdatedAt,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      return await _ref
+          .read(orderServiceProvider)
+          .editMealCustomizationLine(
+            transactionLineId: transactionLineId,
+            request: request,
+            expectedTransactionUpdatedAt: expectedTransactionUpdatedAt,
+          );
+    } on StaleMealCustomizationEditException {
+      rethrow;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'meal_customization_editor_apply_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+            'product_id': request.productId,
+            'profile_id': request.profileId,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<TransactionLine?> editOneMealCustomizationLine({
+    required int transactionId,
+    required int transactionLineId,
+    required MealCustomizationRequest request,
+    required DateTime expectedTransactionUpdatedAt,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      return await _ref
+          .read(orderServiceProvider)
+          .editOneMealCustomizationLine(
+            transactionLineId: transactionLineId,
+            request: request,
+            expectedTransactionUpdatedAt: expectedTransactionUpdatedAt,
+          );
+    } on StaleMealCustomizationEditException {
+      rethrow;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'meal_customization_edit_one_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+            'product_id': request.productId,
+            'profile_id': request.profileId,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<TransactionLine?> recreateLegacyMealLine({
+    required int transactionId,
+    required int transactionLineId,
+    required MealCustomizationRequest request,
+  }) async {
+    state = state.copyWith(errorMessage: null);
+    try {
+      return await _ref
+          .read(orderServiceProvider)
+          .recreateLegacyMealLine(
+            transactionLineId: transactionLineId,
+            request: request,
+          );
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'meal_customization_legacy_recreate_failed',
+          stackTrace: stackTrace,
+          metadata: <String, Object?>{
+            'transaction_id': transactionId,
+            'transaction_line_id': transactionLineId,
+            'product_id': request.productId,
+          },
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<Product?> loadProductForRecreate(int productId) async {
+    try {
+      return await _ref.read(productRepositoryProvider).getById(productId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> refundOrder({
     required int transactionId,
     required String reason,
@@ -569,23 +920,186 @@ class OrdersNotifier extends StateNotifier<OrdersState> {
   }
 
   List<CheckoutItem> _toCheckoutItems(List<CartItem> items) {
-    return items
-        .map((CartItem item) {
-          return CheckoutItem(
-            productId: item.productId,
-            quantity: item.quantity,
-            modifiers: item.modifiers
-                .map(
-                  (CartModifier modifier) => CheckoutModifier(
-                    action: modifier.action,
-                    itemName: modifier.itemName,
-                    extraPriceMinor: modifier.extraPriceMinor,
-                  ),
-                )
-                .toList(growable: false),
+    final List<CheckoutItem> checkoutItems = <CheckoutItem>[];
+    for (final CartItem item in items) {
+      final CheckoutItem baseItem = CheckoutItem(
+        productId: item.productId,
+        quantity: 1,
+        modifiers: item.modifiers
+            .map(
+              (CartModifier modifier) => CheckoutModifier(
+                action: modifier.action,
+                itemName: modifier.itemName,
+                extraPriceMinor: modifier.extraPriceMinor,
+              ),
+            )
+            .toList(growable: false),
+        breakfastSelection: item.breakfastSelection,
+        mealCustomizationRequest: item.mealCustomizationSelection?.request,
+      );
+      if (item.breakfastSelection != null) {
+        for (int index = 0; index < item.quantity; index += 1) {
+          checkoutItems.add(baseItem);
+        }
+        continue;
+      }
+      checkoutItems.add(baseItem.copyWith(quantity: item.quantity));
+    }
+    return checkoutItems;
+  }
+
+  Future<BreakfastEditorData> _buildBreakfastEditorData({
+    required int transactionId,
+    required int transactionLineId,
+  }) async {
+    final orderService = _ref.read(orderServiceProvider);
+    final Transaction? transaction = await orderService.getOrderById(
+      transactionId,
+    );
+    if (transaction == null) {
+      throw NotFoundException('Transaction not found: $transactionId');
+    }
+
+    TransactionLine? line;
+    final List<TransactionLine> lines = await orderService.getOrderLines(
+      transactionId,
+    );
+    for (final TransactionLine candidate in lines) {
+      if (candidate.id == transactionLineId) {
+        line = candidate;
+        break;
+      }
+    }
+    if (line == null) {
+      throw NotFoundException('Transaction line not found: $transactionLineId');
+    }
+
+    final BreakfastConfigurationRepository configurationRepository = _ref.read(
+      breakfastConfigurationRepositoryProvider,
+    );
+    final BreakfastSetConfiguration? baseConfiguration =
+        await configurationRepository.loadSetConfiguration(line.productId);
+    if (baseConfiguration == null) {
+      throw ValidationException('Breakfast configuration is unavailable.');
+    }
+
+    final List<OrderModifier> modifiers = await orderService.getLineModifiers(
+      line.id,
+    );
+    final List<BreakfastCookingInstructionRecord> cookingInstructions =
+        await orderService.getLineCookingInstructions(line.id);
+    final BreakfastSetConfiguration configuration =
+        await _augmentBreakfastConfiguration(
+          configurationRepository: configurationRepository,
+          baseConfiguration: baseConfiguration,
+          modifiers: modifiers,
+        );
+    final BreakfastRequestedState requestedState =
+        BreakfastRequestedStateMapper.fromPersistedSnapshot(
+          modifiers: modifiers,
+          cookingInstructions: cookingInstructions
+              .map(
+                (BreakfastCookingInstructionRecord instruction) =>
+                    BreakfastCookingInstructionRequest(
+                      itemProductId: instruction.itemProductId,
+                      instructionCode: instruction.instructionCode,
+                      instructionLabel: instruction.instructionLabel,
+                    ),
+              )
+              .toList(growable: false),
+        );
+
+    return BreakfastEditorData(
+      transaction: transaction,
+      line: line,
+      modifiers: modifiers,
+      configuration: configuration,
+      requestedState: requestedState,
+      addableProducts: _buildBreakfastAddableProducts(
+        configuration: configuration,
+      ),
+    );
+  }
+
+  Future<TransactionLine> _requireOrderLine({
+    required OrderService orderService,
+    required int transactionId,
+    required int transactionLineId,
+  }) async {
+    final List<TransactionLine> lines = await orderService.getOrderLines(
+      transactionId,
+    );
+    for (final TransactionLine candidate in lines) {
+      if (candidate.id == transactionLineId) {
+        return candidate;
+      }
+    }
+    throw NotFoundException('Transaction line not found: $transactionLineId');
+  }
+
+  Future<BreakfastSetConfiguration> _augmentBreakfastConfiguration({
+    required BreakfastConfigurationRepository configurationRepository,
+    required BreakfastSetConfiguration baseConfiguration,
+    required List<OrderModifier> modifiers,
+  }) async {
+    final Set<int> missingProductIds = <int>{};
+    for (final OrderModifier modifier in modifiers) {
+      final int? itemProductId = modifier.itemProductId;
+      if (itemProductId != null &&
+          baseConfiguration.findCatalogProduct(itemProductId) == null) {
+        missingProductIds.add(itemProductId);
+      }
+    }
+    if (missingProductIds.isEmpty) {
+      return baseConfiguration;
+    }
+
+    final Map<int, BreakfastCatalogProduct> extraProducts =
+        await configurationRepository.loadCatalogProductsByIds(
+          missingProductIds,
+        );
+    return baseConfiguration.copyWith(
+      catalogProductsById: <int, BreakfastCatalogProduct>{
+        ...baseConfiguration.catalogProductsById,
+        ...extraProducts,
+      },
+    );
+  }
+
+  List<BreakfastAddableProduct> _buildBreakfastAddableProducts({
+    required BreakfastSetConfiguration configuration,
+  }) {
+    final List<BreakfastAddableProduct> products = configuration.extras
+        .map((BreakfastExtraItemConfig extra) {
+          final BreakfastCatalogProduct? product = configuration
+              .findCatalogProduct(extra.itemProductId);
+          if (product == null) {
+            return null;
+          }
+          return BreakfastAddableProduct(
+            id: product.id,
+            name: product.name,
+            priceMinor: product.priceMinor,
+            sortKey: extra.sortOrder,
+            isChoiceCapable: configuration.choiceCapableProductIds.contains(
+              product.id,
+            ),
+            isSwapEligible: configuration.swapEligibleProductIds.contains(
+              product.id,
+            ),
           );
         })
-        .toList(growable: false);
+        .whereType<BreakfastAddableProduct>()
+        .toList(growable: true);
+
+    products.sort((BreakfastAddableProduct a, BreakfastAddableProduct b) {
+      final int sortCompare = a.sortKey.compareTo(b.sortKey);
+      if (sortCompare != 0) {
+        return sortCompare;
+      }
+      return a.name.compareTo(b.name);
+    });
+    return products;
   }
 }
 

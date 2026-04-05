@@ -99,13 +99,18 @@ class _AdminRevenueAnalyticsScreenState
       adminRevenueAnalyticsNotifierProvider.notifier,
     );
 
-    final Widget content = switch ((summary, state.errorMessage, state.isLoading)) {
+    final Widget content = switch ((
+      summary,
+      state.errorMessage,
+      state.isLoading,
+    )) {
       (null, final String message?, _) => AdminRevenueAnalyticsErrorView(
         message: message,
         onRetry: () => notifier.load(),
       ),
       (null, _, _) => const AdminRevenueAnalyticsLoadingView(),
-      (final RevenueSummary loaded, _, _) when !loaded.hasPaidData =>
+      (final RevenueSummary loaded, _, _)
+          when !loaded.hasPaidData && loaded.semanticSalesAnalytics.isEmpty =>
         AdminRevenueAnalyticsEmptyView(statusMessage: state.errorMessage),
       (final RevenueSummary loaded, _, final bool isLoading) =>
         AdminRevenueAnalyticsDashboard(
@@ -123,10 +128,8 @@ class _AdminRevenueAnalyticsScreenState
           onPeriodSelected: _handlePresetSelected,
           onCustomPeriodRequested: () => _handleCustomPeriodSelected(context),
           onComparisonModeSelected: _handleComparisonModeSelected,
-          onSaveViewRequested: () => _showSaveViewDialog(
-            context: context,
-            notifier: notifier,
-          ),
+          onSaveViewRequested: () =>
+              _showSaveViewDialog(context: context, notifier: notifier),
           onSavedViewsRequested: () => _showSavedViewsSheet(
             context: context,
             notifier: notifier,
@@ -187,7 +190,8 @@ class _AdminRevenueAnalyticsScreenState
     final AdminRevenueAnalyticsState state = ref.read(
       adminRevenueAnalyticsNotifierProvider,
     );
-    final RevenueSelectedPeriodSummary? summary = state.summary?.selectedPeriodSummary;
+    final RevenueSelectedPeriodSummary? summary =
+        state.summary?.selectedPeriodSummary;
     final DateTimeRange initialDateRange = DateTimeRange(
       start: state.periodSelection.isCustom
           ? state.periodSelection.start!
@@ -212,11 +216,7 @@ class _AdminRevenueAnalyticsScreenState
           picked.start.month,
           picked.start.day,
         ),
-        end: DateTime.utc(
-          picked.end.year,
-          picked.end.month,
-          picked.end.day,
-        ),
+        end: DateTime.utc(picked.end.year, picked.end.month, picked.end.day),
       ),
     );
   }
@@ -235,9 +235,13 @@ class _AdminRevenueAnalyticsScreenState
     setState(() {
       _comparisonMode = value;
     });
-    ref.read(adminRevenueAnalyticsNotifierProvider.notifier).clearSelectedSavedView();
+    ref
+        .read(adminRevenueAnalyticsNotifierProvider.notifier)
+        .clearSelectedSavedView();
     _syncLocation(
-      selection: ref.read(adminRevenueAnalyticsNotifierProvider).periodSelection,
+      selection: ref
+          .read(adminRevenueAnalyticsNotifierProvider)
+          .periodSelection,
       comparisonMode: value,
     );
   }
@@ -247,7 +251,9 @@ class _AdminRevenueAnalyticsScreenState
       _selectedInsightCode = value;
     });
     _syncLocation(
-      selection: ref.read(adminRevenueAnalyticsNotifierProvider).periodSelection,
+      selection: ref
+          .read(adminRevenueAnalyticsNotifierProvider)
+          .periodSelection,
       comparisonMode: _comparisonMode,
     );
   }
@@ -257,7 +263,9 @@ class _AdminRevenueAnalyticsScreenState
       _selectedTrendDate = value;
     });
     _syncLocation(
-      selection: ref.read(adminRevenueAnalyticsNotifierProvider).periodSelection,
+      selection: ref
+          .read(adminRevenueAnalyticsNotifierProvider)
+          .periodSelection,
       comparisonMode: _comparisonMode,
     );
   }
@@ -267,7 +275,9 @@ class _AdminRevenueAnalyticsScreenState
       _selectedDaypart = value;
     });
     _syncLocation(
-      selection: ref.read(adminRevenueAnalyticsNotifierProvider).periodSelection,
+      selection: ref
+          .read(adminRevenueAnalyticsNotifierProvider)
+          .periodSelection,
       comparisonMode: _comparisonMode,
     );
   }
@@ -277,7 +287,9 @@ class _AdminRevenueAnalyticsScreenState
       _selectedMoverId = value;
     });
     _syncLocation(
-      selection: ref.read(adminRevenueAnalyticsNotifierProvider).periodSelection,
+      selection: ref
+          .read(adminRevenueAnalyticsNotifierProvider)
+          .periodSelection,
       comparisonMode: _comparisonMode,
     );
   }
@@ -311,7 +323,8 @@ class _AdminRevenueAnalyticsScreenState
               child: const Text('İptal'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
               child: const Text('Kaydet'),
             ),
           ],
@@ -419,9 +432,9 @@ class _AdminRevenueAnalyticsScreenState
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Share link copied')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Share link copied')));
   }
 
   Future<void> _copySnapshot({

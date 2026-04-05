@@ -1,6 +1,7 @@
 import '../../core/config/app_config.dart';
 import '../../core/errors/exceptions.dart';
 import '../../core/logging/app_logger.dart';
+import '../../data/repositories/breakfast_configuration_repository.dart';
 import '../../data/repositories/category_repository.dart';
 import '../../data/repositories/modifier_repository.dart';
 import '../../data/repositories/product_repository.dart';
@@ -35,13 +36,57 @@ import 'report_service.dart';
 import 'cash_movement_service.dart';
 import 'shift_session_service.dart';
 
+enum ProductDeleteOutcome { deleted, deactivated }
+
+class ProductDeletionAnalysis {
+  const ProductDeletionAnalysis({
+    required this.product,
+    required this.hasHistoricalUsage,
+    required this.isSetProduct,
+    required this.setConfigReferenceCount,
+    required this.requiredChoiceReferenceCount,
+    required this.extrasPoolReferenceCount,
+    required this.mealComponentDefaultReferenceCount,
+    required this.mealSwapOptionReferenceCount,
+    required this.mealExtraOptionReferenceCount,
+    required this.mealPricingRuleReferenceCount,
+    required this.mealAffectedProfileCount,
+  });
+
+  final Product product;
+  final bool hasHistoricalUsage;
+  final bool isSetProduct;
+  final int setConfigReferenceCount;
+  final int requiredChoiceReferenceCount;
+  final int extrasPoolReferenceCount;
+  final int mealComponentDefaultReferenceCount;
+  final int mealSwapOptionReferenceCount;
+  final int mealExtraOptionReferenceCount;
+  final int mealPricingRuleReferenceCount;
+  final int mealAffectedProfileCount;
+
+  bool get hasSemanticReferences =>
+      setConfigReferenceCount > 0 ||
+      requiredChoiceReferenceCount > 0 ||
+      extrasPoolReferenceCount > 0;
+
+  bool get hasMealAdjustmentReferences =>
+      mealComponentDefaultReferenceCount > 0 ||
+      mealSwapOptionReferenceCount > 0 ||
+      mealExtraOptionReferenceCount > 0 ||
+      mealPricingRuleReferenceCount > 0;
+}
+
 class AdminService {
+  static const String archivedCategoryName = 'Archived Products';
+  static const String setBreakfastCategoryName = 'Set Breakfast';
   static const int defaultSyncMaxRetryAttempts = 5;
   static const Duration defaultProcessingStuckThreshold = Duration(minutes: 2);
 
   const AdminService({
     required CategoryRepository categoryRepository,
     required ProductRepository productRepository,
+    required BreakfastConfigurationRepository breakfastConfigurationRepository,
     required ModifierRepository modifierRepository,
     required ShiftRepository shiftRepository,
     required TransactionRepository transactionRepository,
@@ -57,6 +102,7 @@ class AdminService {
     AppLogger logger = const NoopAppLogger(),
   }) : _categoryRepository = categoryRepository,
        _productRepository = productRepository,
+       _breakfastConfigurationRepository = breakfastConfigurationRepository,
        _modifierRepository = modifierRepository,
        _shiftRepository = shiftRepository,
        _transactionRepository = transactionRepository,
@@ -73,6 +119,7 @@ class AdminService {
 
   final CategoryRepository _categoryRepository;
   final ProductRepository _productRepository;
+  final BreakfastConfigurationRepository _breakfastConfigurationRepository;
   final ModifierRepository _modifierRepository;
   final ShiftRepository _shiftRepository;
   final TransactionRepository _transactionRepository;
@@ -123,6 +170,7 @@ class AdminService {
     _ensureAdmin(user);
     _validateRequiredName(name, fieldName: 'Category name');
     _validateNonNegative(sortOrder, fieldName: 'sortOrder');
+    await _ensureUniqueCategoryName(name);
 
     return _categoryRepository.insert(
       name: name.trim(),
@@ -141,6 +189,7 @@ class AdminService {
     _ensureAdmin(user);
     _validateRequiredName(name, fieldName: 'Category name');
     _validateNonNegative(sortOrder, fieldName: 'sortOrder');
+    await _ensureUniqueCategoryName(name, excludeCategoryId: id);
 
     final bool updated = await _categoryRepository.updateCategory(
       id: id,
@@ -149,6 +198,43 @@ class AdminService {
       isActive: isActive,
     );
     if (!updated) {
+      throw NotFoundException('Category not found: $id');
+    }
+  }
+
+  Future<bool> categoryHasActiveProducts({
+    required User user,
+    required int id,
+  }) async {
+    _ensureAdmin(user);
+    return _categoryRepository.hasActiveProducts(id);
+  }
+
+  Future<void> deleteCategory({required User user, required int id}) async {
+    _ensureAdmin(user);
+    if (await _categoryRepository.hasActiveProducts(id)) {
+      throw ValidationException(
+        'This category contains active products. Move, archive, or delete them first.',
+      );
+    }
+    final List<Product> categoryProducts = await _productRepository
+        .getByCategory(id, activeOnly: false);
+    final List<Product> archivedProducts = categoryProducts
+        .where((Product product) => !product.isActive)
+        .toList(growable: false);
+    if (archivedProducts.isNotEmpty) {
+      final int archivedCategoryId = await _ensureArchivedFallbackCategory(
+        excludeCategoryId: id,
+      );
+      for (final Product product in archivedProducts) {
+        await _productRepository.updateProduct(
+          id: product.id,
+          categoryId: archivedCategoryId,
+        );
+      }
+    }
+    final bool deleted = await _categoryRepository.deleteCategory(id);
+    if (!deleted) {
       throw NotFoundException('Category not found: $id');
     }
   }
@@ -214,6 +300,60 @@ class AdminService {
     return productId;
   }
 
+  Future<int> createBreakfastSetRoot({
+    required User user,
+    required String name,
+    required int priceMinor,
+    bool isActive = true,
+    bool isVisibleOnPos = true,
+    int? sortOrder,
+  }) async {
+    _ensureAdmin(user);
+    _validateRequiredName(name, fieldName: 'Set name');
+    _validateNonNegative(priceMinor, fieldName: 'price_minor');
+
+    final Category? breakfastCategory = await _categoryRepository
+        .findByNameIgnoreCase(setBreakfastCategoryName);
+    if (breakfastCategory == null) {
+      throw ValidationException(
+        'Set Breakfast category is required before creating a breakfast set.',
+      );
+    }
+
+    final List<Product> categoryProducts = await _productRepository
+        .getByCategory(breakfastCategory.id, activeOnly: false);
+    final String normalizedName = name.trim().toLowerCase();
+    final bool duplicateExists = categoryProducts.any(
+      (Product product) => product.name.trim().toLowerCase() == normalizedName,
+    );
+    if (duplicateExists) {
+      throw ValidationException(
+        'A breakfast set with this name already exists in Set Breakfast.',
+      );
+    }
+
+    final int effectiveSortOrder =
+        sortOrder ??
+        _nextSortOrder(
+          categoryProducts.map((Product product) => product.sortOrder),
+        );
+
+    final int productId = await createProduct(
+      user: user,
+      categoryId: breakfastCategory.id,
+      name: name.trim(),
+      priceMinor: priceMinor,
+      hasModifiers: false,
+      sortOrder: effectiveSortOrder,
+      isActive: isActive,
+      isVisibleOnPos: isVisibleOnPos,
+    );
+    await _breakfastConfigurationRepository.bootstrapBreakfastSetRoot(
+      productId,
+    );
+    return productId;
+  }
+
   Future<void> updateProduct({
     required User user,
     required int id,
@@ -227,6 +367,10 @@ class AdminService {
   }) async {
     _ensureAdmin(user);
     final Product before = await _requireExistingProduct(id);
+    await _ensureProductLifecycleGuardrails(
+      product: before,
+      nextIsActive: isActive,
+    );
     await _requireCategory(categoryId);
     _validateRequiredName(name, fieldName: 'Product name');
     _validateNonNegative(priceMinor, fieldName: 'price_minor');
@@ -276,6 +420,10 @@ class AdminService {
   }) async {
     _ensureAdmin(user);
     final Product before = await _requireExistingProduct(id);
+    await _ensureProductLifecycleGuardrails(
+      product: before,
+      nextIsActive: isActive,
+    );
     final bool updated = await _productRepository.toggleActive(id, isActive);
     if (!updated) {
       throw NotFoundException('Product not found: $id');
@@ -310,6 +458,96 @@ class AdminService {
     );
   }
 
+  Future<ProductDeletionAnalysis> analyzeProductDeletion({
+    required User user,
+    required int id,
+  }) async {
+    _ensureAdmin(user);
+    final Product product = await _requireExistingProduct(id);
+    final ({int setConfigCount, int requiredChoiceCount, int extrasPoolCount})
+    semanticReferences = await _productRepository.loadSemanticReferenceSummary(
+      id,
+    );
+    final MealAdjustmentProductReferenceSummary mealReferences =
+        await _productRepository.loadMealAdjustmentReferenceSummary(id);
+    return ProductDeletionAnalysis(
+      product: product,
+      hasHistoricalUsage: await _productRepository.hasHistoricalUsage(id),
+      isSetProduct: await _productRepository.hasOwnedSemanticConfiguration(id),
+      setConfigReferenceCount: semanticReferences.setConfigCount,
+      requiredChoiceReferenceCount: semanticReferences.requiredChoiceCount,
+      extrasPoolReferenceCount: semanticReferences.extrasPoolCount,
+      mealComponentDefaultReferenceCount: mealReferences.componentDefaultCount,
+      mealSwapOptionReferenceCount: mealReferences.swapOptionCount,
+      mealExtraOptionReferenceCount: mealReferences.extraOptionCount,
+      mealPricingRuleReferenceCount: mealReferences.pricingRuleItemCount,
+      mealAffectedProfileCount: mealReferences.affectedProfileCount,
+    );
+  }
+
+  Future<ProductDeleteOutcome> deleteProduct({
+    required User user,
+    required int id,
+    bool confirmSemanticImpact = false,
+  }) async {
+    _ensureAdmin(user);
+    final ProductDeletionAnalysis analysis = await analyzeProductDeletion(
+      user: user,
+      id: id,
+    );
+    final Product before = analysis.product;
+    if (analysis.hasMealAdjustmentReferences) {
+      throw ValidationException(
+        'This product is referenced by ${analysis.mealAffectedProfileCount} active meal-adjustment profile(s). Archive or delete is blocked until those profiles are updated.',
+      );
+    }
+    if (analysis.hasHistoricalUsage) {
+      final bool updated = await _productRepository.updateProduct(
+        id: id,
+        isActive: false,
+      );
+      if (!updated) {
+        throw NotFoundException('Product not found: $id');
+      }
+      await _logProductVisibilityChangeIfNeeded(
+        actorUserId: user.id,
+        before: before,
+        after: before.copyWith(isActive: false),
+      );
+      return ProductDeleteOutcome.deactivated;
+    }
+
+    if (!analysis.isSetProduct &&
+        analysis.hasSemanticReferences &&
+        !confirmSemanticImpact) {
+      throw ValidationException(
+        'This product is used by other set configurations. Deleting it may affect those sets.',
+      );
+    }
+
+    final bool deleted = analysis.isSetProduct
+        ? await _productRepository.deleteSetProduct(id)
+        : await _productRepository.deleteStandardProduct(id);
+    if (!deleted) {
+      throw NotFoundException('Product not found: $id');
+    }
+    await _auditLogService.logActionSafely(
+      actorUserId: user.id,
+      action: 'product_deleted',
+      entityType: 'product',
+      entityId: '$id',
+      metadata: <String, Object?>{
+        'category_id': before.categoryId,
+        'name': before.name,
+        'price_minor': before.priceMinor,
+        'has_modifiers': before.hasModifiers,
+        'is_active': before.isActive,
+        'is_visible_on_pos': before.isVisibleOnPos,
+      },
+    );
+    return ProductDeleteOutcome.deleted;
+  }
+
   Future<List<ProductModifier>> getModifiersForProduct(int productId) async {
     await _requireProduct(productId);
     return _modifierRepository.getByProductId(productId, activeOnly: false);
@@ -332,7 +570,7 @@ class AdminService {
       productId: productId,
       name: name.trim(),
       type: type,
-      extraPriceMinor: type == ModifierType.included ? 0 : extraPriceMinor,
+      extraPriceMinor: type == ModifierType.extra ? extraPriceMinor : 0,
       isActive: isActive,
     );
   }
@@ -356,7 +594,7 @@ class AdminService {
       productId: productId,
       name: name.trim(),
       type: type,
-      extraPriceMinor: type == ModifierType.included ? 0 : extraPriceMinor,
+      extraPriceMinor: type == ModifierType.extra ? extraPriceMinor : 0,
       isActive: isActive,
     );
     if (!updated) {
@@ -721,6 +959,25 @@ class AdminService {
     return product;
   }
 
+  Future<void> _ensureProductLifecycleGuardrails({
+    required Product product,
+    required bool nextIsActive,
+  }) async {
+    if (product.isActive == nextIsActive || nextIsActive) {
+      return;
+    }
+
+    final MealAdjustmentProductReferenceSummary mealReferences =
+        await _productRepository.loadMealAdjustmentReferenceSummary(product.id);
+    if (!mealReferences.hasReferences) {
+      return;
+    }
+
+    throw ValidationException(
+      'This product is referenced by ${mealReferences.affectedProfileCount} active meal-adjustment profile(s). Archiving is blocked until those profiles are updated.',
+    );
+  }
+
   Future<void> _logProductVisibilityChangeIfNeeded({
     required int actorUserId,
     required Product before,
@@ -759,6 +1016,43 @@ class AdminService {
   void _validateNonNegative(int value, {required String fieldName}) {
     if (value < 0) {
       throw ValidationException('$fieldName cannot be negative.');
+    }
+  }
+
+  int _nextSortOrder(Iterable<int> existingSortOrders) {
+    int maxSortOrder = -1;
+    for (final int sortOrder in existingSortOrders) {
+      if (sortOrder > maxSortOrder) {
+        maxSortOrder = sortOrder;
+      }
+    }
+    return maxSortOrder + 1;
+  }
+
+  Future<int> _ensureArchivedFallbackCategory({int? excludeCategoryId}) async {
+    final Category? existing = await _categoryRepository.findByNameIgnoreCase(
+      archivedCategoryName,
+      excludeCategoryId: excludeCategoryId,
+    );
+    if (existing != null) {
+      return existing.id;
+    }
+    return _categoryRepository.insert(
+      name: archivedCategoryName,
+      sortOrder: 9999,
+      isActive: true,
+    );
+  }
+
+  Future<void> _ensureUniqueCategoryName(
+    String name, {
+    int? excludeCategoryId,
+  }) async {
+    if (await _categoryRepository.nameExistsIgnoreCase(
+      name,
+      excludeCategoryId: excludeCategoryId,
+    )) {
+      throw ValidationException('Category with this name already exists');
     }
   }
 
