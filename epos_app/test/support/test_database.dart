@@ -72,11 +72,27 @@ class _TestAppDatabase extends AppDatabase {
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT NULL,
+        profile_kind TEXT NOT NULL DEFAULT 'standard' CHECK (profile_kind IN ('standard','sandwich')),
         free_swap_limit INTEGER NOT NULL DEFAULT 0 CHECK (free_swap_limit >= 0),
+        sandwich_surcharge_minor INTEGER NOT NULL DEFAULT 100 CHECK (sandwich_surcharge_minor >= 0),
+        baguette_surcharge_minor INTEGER NOT NULL DEFAULT 180 CHECK (baguette_surcharge_minor >= 0),
+        sandwich_sauce_options_json TEXT NOT NULL DEFAULT '[]',
         is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         CHECK (length(trim(name)) > 0)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE sandwich_sauce_migration_audits (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NULL,
+        legacy_value TEXT NOT NULL,
+        matched_product_id INTEGER NULL,
+        matched_product_name TEXT NULL,
+        status TEXT NOT NULL CHECK (status IN ('mapped','unmatched','ambiguous')),
+        detail TEXT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
     ''');
     await customStatement('''
@@ -225,8 +241,10 @@ class _TestAppDatabase extends AppDatabase {
         name TEXT NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('included','extra','choice')),
         extra_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (extra_price_minor >= 0),
+        price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid')),
+        ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins')),
         is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
-        CHECK ((type = 'choice' AND group_id IS NOT NULL AND item_product_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))
+        CHECK ((type = 'choice' AND group_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))
       );
     ''');
     await customStatement('''
@@ -303,6 +321,8 @@ class _TestAppDatabase extends AppDatabase {
         unit_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (unit_price_minor >= 0),
         price_effect_minor INTEGER NOT NULL DEFAULT 0,
         sort_key INTEGER NOT NULL DEFAULT 0,
+        price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid')),
+        ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins')),
         CHECK (action != 'choice' OR charge_reason = 'included_choice')
       );
     ''');
@@ -417,7 +437,10 @@ class _TestAppDatabase extends AppDatabase {
         device_name TEXT NOT NULL,
         device_address TEXT NOT NULL,
         paper_width INTEGER NOT NULL DEFAULT 80 CHECK (paper_width IN (58,80)),
-        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+        connection_type TEXT NULL CHECK (connection_type IS NULL OR connection_type IN ('bluetooth','ethernet')),
+        ip_address TEXT NULL,
+        port INTEGER NULL CHECK (port IS NULL OR (port >= 1 AND port <= 65535))
       );
     ''');
     await customStatement('''
@@ -895,6 +918,7 @@ Future<int> insertShift(
 Future<int> insertCategory(
   AppDatabase db, {
   required String name,
+  String? imageUrl,
   int sortOrder = 0,
   bool isActive = true,
 }) {
@@ -903,6 +927,7 @@ Future<int> insertCategory(
       .insert(
         CategoriesCompanion.insert(
           name: name,
+          imageUrl: Value<String?>(imageUrl),
           sortOrder: Value<int>(sortOrder),
           isActive: Value<bool>(isActive),
         ),

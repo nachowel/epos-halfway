@@ -387,6 +387,10 @@ class BreakfastRebuildEngine {
         continue;
       }
       if (explicitNoneSelections.isNotEmpty) {
+        if (!group.allowsExplicitNoneSelection) {
+          errors.add(BreakfastEditErrorCode.invalidChoiceQuantity);
+          continue;
+        }
         final int noneQuantity = explicitNoneSelections.fold<int>(
           0,
           (int total, BreakfastChosenGroupRequest request) =>
@@ -400,7 +404,7 @@ class BreakfastRebuildEngine {
           _NormalizedChoiceSelection(
             group: group,
             selectedItemProductId: null,
-            displayName: breakfastNoneChoiceDisplayName,
+            displayName: group.explicitNoneDisplayLabel,
             requestedQuantity: noneQuantity,
           ),
         );
@@ -463,6 +467,12 @@ class BreakfastRebuildEngine {
     }
     if (requestedQuantity == 0) {
       return false;
+    }
+    if (group.minSelect > 0 &&
+        group.maxSelect == 1 &&
+        group.includedQuantity == 1 &&
+        requestedQuantity > 1) {
+      return true;
     }
     return requestedQuantity < group.includedQuantity;
   }

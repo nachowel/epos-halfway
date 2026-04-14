@@ -9,6 +9,53 @@ import '../../support/test_database.dart';
 void main() {
   group('BreakfastConfigurationRepository', () {
     test(
+      'product-linked flat extras do not classify a normal product as semantic set config',
+      () async {
+        final app_db.AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final BreakfastConfigurationRepository repository =
+            BreakfastConfigurationRepository(db);
+        final int categoryId = await insertCategory(db, name: 'Burgers');
+        final int burgerId = await insertProduct(
+          db,
+          categoryId: categoryId,
+          name: 'Burger',
+          priceMinor: 700,
+          hasModifiers: true,
+        );
+        final int chipsId = await insertProduct(
+          db,
+          categoryId: categoryId,
+          name: 'Chips',
+          priceMinor: 150,
+          isVisibleOnPos: false,
+        );
+
+        await db
+            .into(db.productModifiers)
+            .insert(
+              app_db.ProductModifiersCompanion.insert(
+                productId: burgerId,
+                itemProductId: Value<int?>(chipsId),
+                name: 'Chips',
+                type: 'extra',
+                extraPriceMinor: const Value<int>(150),
+                priceBehavior: const Value<String?>('paid'),
+                uiSection: const Value<String?>('add_ins'),
+              ),
+            );
+
+        final profiles = await repository.loadConfigurationProfiles(<int>[
+          burgerId,
+        ]);
+
+        expect(profiles[burgerId]?.flatModifierCount, 0);
+        expect(profiles[burgerId]?.extraPoolCount, 1);
+        expect(profiles[burgerId]?.hasSemanticSetConfig, isFalse);
+      },
+    );
+
+    test(
       'bootstrapBreakfastSetRoot seeds default breakfast choice groups and members once',
       () async {
         final app_db.AppDatabase db = createTestDatabase();
@@ -66,10 +113,17 @@ void main() {
                     ],
                   ))
                 .get();
-        expect(choiceMembers, hasLength(4));
+        expect(choiceMembers, hasLength(6));
         expect(
           choiceMembers.map((app_db.ProductModifier row) => row.name),
-          <String>['Tea', 'Latte', 'Toasts', 'Breads'],
+          <String>[
+            'Tea',
+            'Latte',
+            'No drink',
+            'Toasts',
+            'Breads',
+            'No toast/bread',
+          ],
         );
 
         final profiles = await repository.loadConfigurationProfiles(<int>[
@@ -90,10 +144,12 @@ void main() {
           draft.choiceGroups.first.members.map((member) => member.itemName),
           <String>['Tea', 'Latte'],
         );
+        expect(draft.choiceGroups.first.explicitNoneLabel, 'No drink');
         expect(
           draft.choiceGroups.last.members.map((member) => member.itemName),
           <String>['Toasts', 'Breads'],
         );
+        expect(draft.choiceGroups.last.explicitNoneLabel, 'No toast/bread');
       },
     );
 
@@ -214,52 +270,52 @@ void main() {
       );
     });
 
-    test('fails fast when the set root category is invalid', () async {
-      final app_db.AppDatabase db = createTestDatabase();
-      addTearDown(db.close);
-      final _BreakfastConfigFixture fixture = await _seedFixture(
-        db,
-        rootCategoryName: 'Breakfast',
-      );
-      final BreakfastConfigurationRepository repository =
-          BreakfastConfigurationRepository(db);
+    test(
+      'loads a valid configuration even when the root uses another category',
+      () async {
+        final app_db.AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final _BreakfastConfigFixture fixture = await _seedFixture(
+          db,
+          rootCategoryName: 'Pancake Breakfast',
+        );
+        final BreakfastConfigurationRepository repository =
+            BreakfastConfigurationRepository(db);
 
-      await _insertSetItem(
-        db,
-        rootProductId: fixture.rootProductId,
-        itemProductId: fixture.eggProductId,
-        sortOrder: 1,
-      );
-      final int groupId = await _insertChoiceGroup(
-        db,
-        rootProductId: fixture.rootProductId,
-      );
-      await _insertChoiceMember(
-        db,
-        rootProductId: fixture.rootProductId,
-        groupId: groupId,
-        itemProductId: fixture.teaProductId,
-        label: 'Tea',
-      );
+        await _insertSetItem(
+          db,
+          rootProductId: fixture.rootProductId,
+          itemProductId: fixture.eggProductId,
+          sortOrder: 1,
+        );
+        final int groupId = await _insertChoiceGroup(
+          db,
+          rootProductId: fixture.rootProductId,
+        );
+        await _insertChoiceMember(
+          db,
+          rootProductId: fixture.rootProductId,
+          groupId: groupId,
+          itemProductId: fixture.teaProductId,
+          label: 'Tea',
+        );
 
-      await expectLater(
-        repository.loadSetConfiguration(fixture.rootProductId),
-        throwsA(
-          isA<BreakfastConfigurationInvalidException>()
-              .having(
-                (BreakfastConfigurationInvalidException error) => error.codes,
-                'codes',
-                contains(BreakfastConfigurationErrorCode.invalidSetRoot),
-              )
-              .having(
-                (BreakfastConfigurationInvalidException error) =>
-                    error.rootProductId,
-                'rootProductId',
-                fixture.rootProductId,
-              ),
-        ),
-      );
-    });
+        final configuration = await repository.loadSetConfiguration(
+          fixture.rootProductId,
+        );
+
+        expect(configuration, isNotNull);
+        expect(configuration!.setRootProductId, fixture.rootProductId);
+        expect(
+          configuration.setItems.single.itemProductId,
+          fixture.eggProductId,
+        );
+        expect(
+          configuration.choiceGroups.single.members.single.itemProductId,
+          fixture.teaProductId,
+        );
+      },
+    );
 
     test('fails when a choice group has no active members', () async {
       final app_db.AppDatabase db = createTestDatabase();
@@ -298,7 +354,7 @@ void main() {
       );
     });
 
-    test('fails when a choice row is missing item_product_id', () async {
+    test('loads explicit none choice rows as group answer options', () async {
       final app_db.AppDatabase db = createTestDatabase();
       addTearDown(db.close);
       final _BreakfastConfigFixture fixture = await _seedFixture(db);
@@ -315,6 +371,13 @@ void main() {
         db,
         rootProductId: fixture.rootProductId,
       );
+      await _insertChoiceMember(
+        db,
+        rootProductId: fixture.rootProductId,
+        groupId: groupId,
+        itemProductId: fixture.teaProductId,
+        label: 'Tea',
+      );
       await _insertMalformedChoiceRow(
         db,
         rootProductId: fixture.rootProductId,
@@ -322,22 +385,18 @@ void main() {
         label: 'Broken choice',
       );
 
-      await expectLater(
-        repository.loadSetConfiguration(fixture.rootProductId),
-        throwsA(
-          isA<BreakfastConfigurationInvalidException>()
-              .having(
-                (BreakfastConfigurationInvalidException error) => error.codes,
-                'codes',
-                contains(BreakfastConfigurationErrorCode.missingItemProductId),
-              )
-              .having(
-                (BreakfastConfigurationInvalidException error) =>
-                    error.issues.single.productModifierId,
-                'productModifierId',
-                isPositive,
-              ),
-        ),
+      final configuration = await repository.loadSetConfiguration(
+        fixture.rootProductId,
+      );
+
+      expect(configuration, isNotNull);
+      expect(
+        configuration!.choiceGroups.single.explicitNoneLabel,
+        'Broken choice',
+      );
+      expect(
+        configuration.choiceGroups.single.members.single.displayName,
+        'Tea',
       );
     });
 

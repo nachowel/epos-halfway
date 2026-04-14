@@ -10,6 +10,7 @@ import '../config/app_config.dart';
 import '../logging/app_logger.dart';
 import '../../data/database/app_database.dart';
 import '../../data/repositories/auth_lockout_store.dart';
+import '../../data/repositories/analytics_repository.dart';
 import '../../data/repositories/audit_log_repository.dart';
 import '../../data/repositories/breakfast_configuration_repository.dart';
 import '../../data/repositories/category_repository.dart';
@@ -40,6 +41,12 @@ import '../../data/sync/sync_remote_gateway.dart';
 import '../../data/sync/sync_worker.dart';
 import '../../domain/services/auth_service.dart';
 import '../../domain/services/admin_service.dart';
+import '../../domain/services/analytics_export_service.dart';
+import '../../domain/services/analytics_insight_service.dart';
+import '../../domain/services/analytics_overview_service.dart';
+import '../../domain/services/analytics_payments_service.dart';
+import '../../domain/services/analytics_products_service.dart';
+import '../../domain/services/analytics_revenue_service.dart';
 import '../../domain/services/audit_log_service.dart';
 import '../../domain/services/cash_movement_service.dart';
 import '../../domain/services/cashier_dashboard_service.dart';
@@ -48,6 +55,7 @@ import '../../domain/services/cashier_report_service.dart';
 import '../../domain/services/breakfast_pos_service.dart';
 import '../../domain/services/catalog_service.dart';
 import '../../domain/services/checkout_service.dart';
+import '../../domain/services/exit_safety_service.dart';
 import '../../domain/services/meal_adjustment_admin_service.dart';
 import '../../domain/services/meal_adjustment_profile_validation_service.dart';
 import '../../domain/services/meal_customization_engine.dart';
@@ -63,6 +71,7 @@ import '../../domain/services/revenue_analytics_service.dart';
 import '../../domain/services/semantic_menu_admin_service.dart';
 import '../../domain/services/semantic_menu_policy_service.dart';
 import '../../domain/services/shift_session_service.dart';
+import '../../domain/services/user_management_service.dart';
 import '../../presentation/providers/app_locale_provider.dart';
 
 final Provider<AppDatabase> appDatabaseProvider = Provider<AppDatabase>((_) {
@@ -180,6 +189,11 @@ final Provider<SystemRepository> systemRepositoryProvider =
         ref.watch(appDatabaseProvider),
         logger: ref.watch(appLoggerProvider),
       ),
+    );
+
+final Provider<AnalyticsRepository> analyticsRepositoryProvider =
+    Provider<AnalyticsRepository>(
+      (Ref ref) => DriftAnalyticsRepository(ref.watch(appDatabaseProvider)),
     );
 
 final Provider<SyncPayloadRepository> syncPayloadRepositoryProvider =
@@ -396,19 +410,19 @@ final Provider<BreakfastPosService> breakfastPosServiceProvider =
       ),
     );
 
-final Provider<MealCustomizationPosService> mealCustomizationPosServiceProvider =
-    Provider<MealCustomizationPosService>(
-      (Ref ref) => MealCustomizationPosService(
-        mealAdjustmentProfileRepository: ref.watch(
-          mealAdjustmentProfileRepositoryProvider,
-        ),
-        validationService: ref.watch(
-          mealAdjustmentProfileValidationServiceProvider,
-        ),
-        productRepository: ref.watch(productRepositoryProvider),
-        engine: ref.watch(mealCustomizationEngineProvider),
-      ),
-    );
+final Provider<MealCustomizationPosService>
+mealCustomizationPosServiceProvider = Provider<MealCustomizationPosService>(
+  (Ref ref) => MealCustomizationPosService(
+    mealAdjustmentProfileRepository: ref.watch(
+      mealAdjustmentProfileRepositoryProvider,
+    ),
+    validationService: ref.watch(
+      mealAdjustmentProfileValidationServiceProvider,
+    ),
+    productRepository: ref.watch(productRepositoryProvider),
+    engine: ref.watch(mealCustomizationEngineProvider),
+  ),
+);
 
 final Provider<MealInsightsService> mealInsightsServiceProvider =
     Provider<MealInsightsService>(
@@ -496,6 +510,47 @@ final Provider<RevenueAnalyticsService> revenueAnalyticsServiceProvider =
       ),
     );
 
+final Provider<AnalyticsOverviewService> analyticsOverviewServiceProvider =
+    Provider<AnalyticsOverviewService>(
+      (Ref ref) => AnalyticsOverviewService(
+        repository: ref.watch(analyticsRepositoryProvider),
+      ),
+    );
+
+final Provider<AnalyticsProductsService> analyticsProductsServiceProvider =
+    Provider<AnalyticsProductsService>(
+      (Ref ref) => AnalyticsProductsService(
+        repository: ref.watch(analyticsRepositoryProvider),
+      ),
+    );
+
+final Provider<AnalyticsPaymentsService> analyticsPaymentsServiceProvider =
+    Provider<AnalyticsPaymentsService>(
+      (Ref ref) => AnalyticsPaymentsService(
+        repository: ref.watch(analyticsRepositoryProvider),
+      ),
+    );
+
+final Provider<AnalyticsRevenueService> analyticsRevenueServiceProvider =
+    Provider<AnalyticsRevenueService>(
+      (Ref ref) => AnalyticsRevenueService(
+        repository: ref.watch(analyticsRepositoryProvider),
+      ),
+    );
+
+final Provider<AnalyticsInsightService> analyticsInsightServiceProvider =
+    Provider<AnalyticsInsightService>((_) => const AnalyticsInsightService());
+
+final Provider<AnalyticsExportService> analyticsExportServiceProvider =
+    Provider<AnalyticsExportService>(
+      (Ref ref) => AnalyticsExportService(
+        overviewService: ref.watch(analyticsOverviewServiceProvider),
+        revenueService: ref.watch(analyticsRevenueServiceProvider),
+        productsService: ref.watch(analyticsProductsServiceProvider),
+        paymentsService: ref.watch(analyticsPaymentsServiceProvider),
+      ),
+    );
+
 final Provider<OrderService> orderServiceProvider = Provider<OrderService>(
   (Ref ref) => OrderService(
     shiftSessionService: ref.watch(shiftSessionServiceProvider),
@@ -546,6 +601,14 @@ final Provider<PaymentService> paymentServiceProvider =
       ),
     );
 
+final Provider<ExitSafetyService> exitSafetyServiceProvider =
+    Provider<ExitSafetyService>(
+      (Ref ref) => DefaultExitSafetyService(
+        shiftSessionService: ref.watch(shiftSessionServiceProvider),
+        orderService: ref.watch(orderServiceProvider),
+      ),
+    );
+
 final Provider<CheckoutService> checkoutServiceProvider =
     Provider<CheckoutService>(
       (Ref ref) => CheckoutService(
@@ -578,3 +641,12 @@ final Provider<ReportService> reportServiceProvider = Provider<ReportService>(
 
 final Provider<ReportVisibilityService> reportVisibilityServiceProvider =
     Provider<ReportVisibilityService>((_) => const ReportVisibilityService());
+
+final Provider<UserManagementService> userManagementServiceProvider =
+    Provider<UserManagementService>(
+      (Ref ref) => UserManagementService(
+        userRepository: ref.watch(userRepositoryProvider),
+        auditLogService: ref.watch(auditLogServiceProvider),
+        logger: ref.watch(appLoggerProvider),
+      ),
+    );

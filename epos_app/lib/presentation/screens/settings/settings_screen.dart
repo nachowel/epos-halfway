@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_sizes.dart';
 import '../../../core/constants/app_strings.dart';
@@ -9,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/shift_provider.dart';
 import '../../widgets/language_selector_card.dart';
+import '../../widgets/logout_confirmation.dart';
 import '../../widgets/section_app_bar.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -47,10 +46,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         currentRoute: '/admin/settings',
         currentUser: currentUser,
         currentShift: shiftState.currentShift,
-        onLogout: () {
-          ref.read(authNotifierProvider.notifier).logout();
-          context.go('/login');
-        },
+        onLogout: () => handleLogoutRequest(context, ref),
       ),
       body: ListView(
         padding: const EdgeInsets.all(AppSizes.spacingMd),

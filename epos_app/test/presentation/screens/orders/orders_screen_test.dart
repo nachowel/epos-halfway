@@ -5,7 +5,7 @@ import 'package:epos_app/data/database/app_database.dart'
 import 'package:epos_app/l10n/app_localizations.dart';
 import 'package:epos_app/presentation/providers/auth_provider.dart';
 import 'package:epos_app/presentation/providers/shift_provider.dart';
-import 'package:epos_app/presentation/screens/orders/open_orders_screen.dart';
+import 'package:epos_app/presentation/screens/orders/orders_screen.dart';
 import 'package:epos_app/presentation/screens/pos/widgets/payment_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -21,7 +21,7 @@ void main() {
     AppLocalizationService.instance.setLocale(const Locale('en'));
   });
 
-  testWidgets('open orders rows show count metadata and direct pay action', (
+  testWidgets('cashier orders screen shows only today paid reprints', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -33,6 +33,15 @@ void main() {
       db,
       name: 'Cashier',
       role: 'cashier',
+    );
+    final int closedShiftId = await insertShift(
+      db,
+      openedBy: cashierId,
+      status: 'closed',
+      closedBy: cashierId,
+      closedAt: DateTime.now(),
+      cashierPreviewedBy: cashierId,
+      cashierPreviewedAt: DateTime.now(),
     );
     final int shiftId = await insertShift(db, openedBy: cashierId);
     final int categoryId = await insertCategory(db, name: 'Breakfast');
@@ -62,6 +71,15 @@ void main() {
       status: 'sent',
       totalAmountMinor: 1580,
     );
+    final int paidOrderId = await insertTransaction(
+      db,
+      uuid: 'orders-screen-paid-history',
+      shiftId: closedShiftId,
+      userId: cashierId,
+      status: 'paid',
+      totalAmountMinor: 420,
+      paidAt: DateTime.now(),
+    );
 
     await _insertOrderLine(
       db,
@@ -90,6 +108,15 @@ void main() {
       unitPriceMinor: 380,
       lineTotalMinor: 380,
     );
+    await _insertOrderLine(
+      db,
+      uuid: 'orders-screen-history-line',
+      transactionId: paidOrderId,
+      productId: latteId,
+      productName: 'Latte',
+      unitPriceMinor: 420,
+      lineTotalMinor: 420,
+    );
 
     final ProviderContainer container = ProviderContainer(
       overrides: <Override>[
@@ -105,32 +132,157 @@ void main() {
     await tester.pumpWidget(_ordersApp(container));
     await tester.pumpAndSettle();
 
-    expect(find.byType(OpenOrdersScreen), findsOneWidget);
-    expect(find.text('Pay £15.80'), findsOneWidget);
+    expect(find.byType(OrdersScreen), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('orders-search-field')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('orders-filter-all')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('orders-date-filter-today')),
+      findsNothing,
+    );
+    expect(find.text('Pay'), findsNothing);
+    expect(find.byKey(Key('orders-kitchen-$orderId')), findsNothing);
+    expect(find.byKey(Key('orders-receipt-$orderId')), findsNothing);
+    expect(find.byKey(Key('orders-kitchen-$paidOrderId')), findsOneWidget);
+    expect(find.byKey(Key('orders-receipt-$paidOrderId')), findsOneWidget);
     final Finder metadataFinder = find.byWidgetPredicate(
       (Widget widget) =>
           widget is Text &&
           widget.data != null &&
-          widget.data!.contains('3 items · SE5 Breakfast, Latte, Cappuccino'),
+          widget.data!.contains('SE5 Breakfast, Latte, Cappuccino'),
     );
-    expect(metadataFinder, findsOneWidget);
+    expect(metadataFinder, findsNothing);
+    expect(find.text('Order #$paidOrderId'), findsOneWidget);
+    expect(find.text('Order #$orderId'), findsNothing);
 
-    final Text metadataText = tester.widget<Text>(metadataFinder);
-    expect(metadataText.maxLines, 1);
-    expect(metadataText.overflow, TextOverflow.ellipsis);
-    expect(
-      find.text('18:28 · 3 items · SE5 Breakfast, Latte, Cappuccino'),
-      findsNothing,
+    final OutlinedButton paidReceiptButton = tester.widget<OutlinedButton>(
+      find.byKey(Key('orders-receipt-$paidOrderId')),
     );
-
-    await tester.tap(find.byKey(Key('open-order-pay-$orderId')));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(PaymentDialog), findsOneWidget);
-    expect(find.text('detail-$orderId'), findsNothing);
+    expect(paidReceiptButton.onPressed, isNotNull);
+    final ElevatedButton paidKitchenButton = tester.widget<ElevatedButton>(
+      find.byKey(Key('orders-kitchen-$paidOrderId')),
+    );
+    expect(paidKitchenButton.onPressed, isNotNull);
   });
 
-  testWidgets('tapping the row opens the order detail route', (
+  testWidgets(
+    'cashier orders screen limits results to five newest paid today',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppDatabase db = createTestDatabase();
+      addTearDown(db.close);
+
+      final int cashierId = await insertUser(
+        db,
+        name: 'Cashier',
+        role: 'cashier',
+      );
+      final int shiftId = await insertShift(db, openedBy: cashierId);
+      final int categoryId = await insertCategory(db, name: 'Drinks');
+      final int productId = await insertProduct(
+        db,
+        categoryId: categoryId,
+        name: 'Flat White',
+        priceMinor: 350,
+      );
+      final List<int> todayOrderIds = <int>[];
+      for (int index = 0; index < 6; index++) {
+        final int transactionId = await insertTransaction(
+          db,
+          uuid: 'orders-screen-today-$index',
+          shiftId: shiftId,
+          userId: cashierId,
+          status: 'paid',
+          totalAmountMinor: 350,
+          paidAt: DateTime(2026, 4, 14, 9 + index),
+        );
+        todayOrderIds.add(transactionId);
+        await _insertOrderLine(
+          db,
+          uuid: 'orders-screen-today-line-$index',
+          transactionId: transactionId,
+          productId: productId,
+          productName: 'Flat White',
+          unitPriceMinor: 350,
+          lineTotalMinor: 350,
+        );
+      }
+      final int yesterdayOrderId = await insertTransaction(
+        db,
+        uuid: 'orders-screen-yesterday',
+        shiftId: shiftId,
+        userId: cashierId,
+        status: 'paid',
+        totalAmountMinor: 350,
+        paidAt: DateTime(2026, 4, 13, 23, 45),
+      );
+      await _insertOrderLine(
+        db,
+        uuid: 'orders-screen-yesterday-line',
+        transactionId: yesterdayOrderId,
+        productId: productId,
+        productName: 'Flat White',
+        unitPriceMinor: 350,
+        lineTotalMinor: 350,
+      );
+      final int sentOrderId = await insertTransaction(
+        db,
+        uuid: 'orders-screen-sent',
+        shiftId: shiftId,
+        userId: cashierId,
+        status: 'sent',
+        totalAmountMinor: 350,
+      );
+      await _insertOrderLine(
+        db,
+        uuid: 'orders-screen-sent-line',
+        transactionId: sentOrderId,
+        productId: productId,
+        productName: 'Flat White',
+        unitPriceMinor: 350,
+        lineTotalMinor: 350,
+      );
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          appDatabaseProvider.overrideWithValue(db),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(authNotifierProvider.notifier)
+          .loadUserById(cashierId);
+      await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
+
+      await tester.pumpWidget(_ordersApp(container));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('orders-search-field')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('orders-load-more')),
+        findsNothing,
+      );
+      expect(find.text('Order #${todayOrderIds[0]}'), findsNothing);
+      for (final int orderId in todayOrderIds.skip(1)) {
+        expect(find.text('Order #$orderId'), findsOneWidget);
+      }
+      expect(find.text('Order #$yesterdayOrderId'), findsNothing);
+      expect(find.text('Order #$sentOrderId'), findsNothing);
+    },
+  );
+
+  testWidgets('cashier row tap does not open the order detail route', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -156,8 +308,9 @@ void main() {
       uuid: 'open-orders-screen-route-order',
       shiftId: shiftId,
       userId: cashierId,
-      status: 'sent',
+      status: 'paid',
       totalAmountMinor: 250,
+      paidAt: DateTime.now(),
     );
 
     await _insertOrderLine(
@@ -184,11 +337,14 @@ void main() {
     await tester.pumpWidget(_ordersApp(container));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(Key('open-order-row-$orderId')));
+    await tester.tap(
+      find.byKey(Key('orders-row-$orderId')),
+      warnIfMissed: false,
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('detail-$orderId'), findsOneWidget);
-    expect(find.byType(OpenOrdersScreen), findsNothing);
+    expect(find.text('detail-$orderId'), findsNothing);
+    expect(find.byType(OrdersScreen), findsOneWidget);
   });
 }
 
@@ -220,7 +376,7 @@ Widget _ordersApp(ProviderContainer container) {
     initialLocation: '/orders',
     routes: <RouteBase>[
       GoRoute(path: '/login', builder: (_, __) => const SizedBox.shrink()),
-      GoRoute(path: '/orders', builder: (_, __) => const OpenOrdersScreen()),
+      GoRoute(path: '/orders', builder: (_, __) => const OrdersScreen()),
       GoRoute(
         path: '/orders/:transactionId',
         builder: (_, GoRouterState state) => Scaffold(

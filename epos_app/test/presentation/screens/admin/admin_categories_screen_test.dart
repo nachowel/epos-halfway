@@ -1,8 +1,10 @@
 import 'package:epos_app/core/constants/app_strings.dart';
 import 'package:epos_app/core/providers/app_providers.dart';
 import 'package:epos_app/core/router/app_router.dart';
-import 'package:epos_app/data/database/app_database.dart';
+import 'package:epos_app/data/database/app_database.dart' show AppDatabase;
 import 'package:epos_app/data/repositories/category_repository.dart';
+import 'package:epos_app/domain/models/category.dart';
+import 'package:epos_app/presentation/providers/admin_categories_provider.dart';
 import 'package:epos_app/presentation/providers/products_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -284,6 +286,104 @@ void main() {
     },
   );
 
+  testWidgets('create category persists optional image URL', (
+    WidgetTester tester,
+  ) async {
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    await insertUser(db, name: 'Admin', role: 'admin', pin: '9999');
+
+    final ProviderContainer container = _makeContainer(db);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestRouterApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _loginWithPin(tester, '9999');
+
+    container.read(appRouterProvider).go('/admin/categories');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(AppStrings.addCategory).last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('category-name-field')),
+      'Bakery',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('category-image-url-field')),
+      'https://cdn.example.com/bakery.png',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('category-save')));
+    await tester.pumpAndSettle();
+
+    final categories = await CategoryRepository(db).getAll(activeOnly: false);
+    final created = categories.singleWhere(
+      (category) => category.name == 'Bakery',
+    );
+    expect(created.imageUrl, 'https://cdn.example.com/bakery.png');
+  });
+
+  testWidgets('edit category preloads and can clear image URL', (
+    WidgetTester tester,
+  ) async {
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    await insertUser(db, name: 'Admin', role: 'admin', pin: '9999');
+    final int categoryId = await insertCategory(
+      db,
+      name: 'Breakfast',
+      imageUrl: 'https://cdn.example.com/breakfast.png',
+    );
+
+    final ProviderContainer container = _makeContainer(db);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestRouterApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _loginWithPin(tester, '9999');
+
+    container.read(appRouterProvider).go('/admin/categories');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey<String>('category-edit-$categoryId')));
+    await tester.pumpAndSettle();
+
+    final TextField imageField = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('category-image-url-field')),
+    );
+    expect(
+      imageField.controller?.text,
+      'https://cdn.example.com/breakfast.png',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('category-image-preview')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('category-image-url-field')),
+      '',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('category-save')));
+    await tester.pumpAndSettle();
+
+    final updated = await CategoryRepository(db).getById(categoryId);
+    expect(updated?.imageUrl, isNull);
+  });
+
   testWidgets('visibility toggle hides category from POS', (
     WidgetTester tester,
   ) async {
@@ -335,6 +435,179 @@ void main() {
       isFalse,
     );
     expect(productsState.products, isEmpty);
+  });
+
+  testWidgets('sort mode shows movement controls and saves persisted order', (
+    WidgetTester tester,
+  ) async {
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    await insertUser(db, name: 'Admin', role: 'admin', pin: '9999');
+    final int breakfastId = await insertCategory(
+      db,
+      name: 'Breakfast',
+      sortOrder: 0,
+    );
+    final int lunchId = await insertCategory(db, name: 'Lunch', sortOrder: 1);
+    final int drinksId = await insertCategory(db, name: 'Drinks', sortOrder: 2);
+    final int bakeryId = await insertCategory(db, name: 'Bakery', sortOrder: 3);
+    final int archivedId = await insertCategory(
+      db,
+      name: 'Archived Products',
+      sortOrder: 4,
+    );
+
+    final ProviderContainer container = _makeContainer(db);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestRouterApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _loginWithPin(tester, '9999');
+
+    container.read(appRouterProvider).go('/admin/categories');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Archived Products'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('category-enter-reorder-mode')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('category-reorder-list')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey<String>('sort-move-up-$breakfastId')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(ValueKey<String>('sort-move-up-$breakfastId')),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(ValueKey<String>('sort-move-down-$archivedId')),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey<String>('category-reorder-list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(ValueKey<String>('sort-move-down-$archivedId')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.text('5. Archived Products'), findsOneWidget);
+
+    await tester.tap(find.byKey(ValueKey<String>('sort-move-top-$archivedId')));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(adminCategoriesNotifierProvider).reorderDraft.first.id,
+      archivedId,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('category-reorder-save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Category order saved.'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('category-reorder-save')),
+      findsNothing,
+    );
+    expect(find.text('Archived Products'), findsNothing);
+
+    final reordered = await CategoryRepository(db).getAll(activeOnly: false);
+    expect(reordered.first.id, archivedId);
+    expect(reordered.map((category) => category.sortOrder), <int>[
+      0,
+      1,
+      2,
+      3,
+      4,
+    ]);
+  });
+
+  testWidgets('sort mode cancel restores original category order', (
+    WidgetTester tester,
+  ) async {
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    await insertUser(db, name: 'Admin', role: 'admin', pin: '9999');
+    final int breakfastId = await insertCategory(
+      db,
+      name: 'Breakfast',
+      sortOrder: 0,
+    );
+    final int lunchId = await insertCategory(db, name: 'Lunch', sortOrder: 1);
+    await insertCategory(db, name: 'Drinks', sortOrder: 2);
+
+    final ProviderContainer container = _makeContainer(db);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestRouterApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _loginWithPin(tester, '9999');
+
+    container.read(appRouterProvider).go('/admin/categories');
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('category-enter-reorder-mode')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(ValueKey<String>('sort-move-down-$breakfastId')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(adminCategoriesNotifierProvider).reorderDraft.first.id,
+      lunchId,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('category-reorder-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('category-reorder-list')),
+      findsNothing,
+    );
+    expect(
+      container.read(adminCategoriesNotifierProvider).reorderDraft.first.id,
+      breakfastId,
+    );
+
+    final List<Category> persisted = await CategoryRepository(
+      db,
+    ).getAll(activeOnly: false);
+    expect(persisted.first.id, breakfastId);
   });
 }
 

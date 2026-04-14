@@ -18,6 +18,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/reports_provider.dart';
 import '../../providers/shift_provider.dart';
 import '../../widgets/counted_cash_dialog.dart';
+import '../../widgets/logout_confirmation.dart';
 import '../../widgets/section_app_bar.dart';
 import '../../widgets/stale_final_close_recovery_dialog.dart';
 
@@ -188,10 +189,7 @@ class _ShiftManagementScreenState extends ConsumerState<ShiftManagementScreen> {
         currentRoute: '/shifts',
         currentUser: currentUser,
         currentShift: shiftState.currentShift,
-        onLogout: () {
-          ref.read(authNotifierProvider.notifier).logout();
-          context.go('/login');
-        },
+        onLogout: () => handleLogoutRequest(context, ref),
       ),
       body: RefreshIndicator(
         onRefresh: () async {

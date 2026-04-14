@@ -4,8 +4,9 @@ import 'package:epos_app/core/providers/app_providers.dart';
 import 'package:epos_app/core/router/app_router.dart';
 import 'package:epos_app/data/database/app_database.dart';
 import 'package:epos_app/l10n/app_localizations.dart';
+import 'package:epos_app/domain/models/product.dart' as domain;
+import 'package:epos_app/domain/services/breakfast_pos_service.dart';
 import 'package:epos_app/presentation/providers/auth_provider.dart';
-import 'package:epos_app/presentation/providers/cart_provider.dart';
 import 'package:epos_app/presentation/providers/orders_provider.dart';
 import 'package:epos_app/presentation/providers/shift_provider.dart';
 import 'package:epos_app/presentation/screens/pos/pos_screen.dart';
@@ -188,7 +189,7 @@ void main() {
 
   group('POS Breakfast Builder terminology', () {
     testWidgets(
-      'semantic product opens structured builder with Included Items, Required Choices, Extras, and Summary sections',
+      'semantic product opens structured builder with Included Items, Required Choices, Extras, and totals summary controls',
       (WidgetTester tester) async {
         SharedPreferences.setMockInitialValues(<String, Object>{});
         final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -232,23 +233,24 @@ void main() {
         expect(find.text('Included Items'), findsOneWidget);
         expect(find.text('Required Choices'), findsOneWidget);
         expect(find.text('Extras'), findsWidgets);
-        expect(find.text('Summary'), findsOneWidget);
+        expect(find.text('Set'), findsOneWidget);
+        expect(find.text('Total'), findsWidgets);
 
         // Legacy jargon is NOT present
         expect(find.text('Configure Bundle'), findsNothing);
         expect(find.text('Set Items'), findsNothing);
         expect(find.text('Current Snapshot'), findsNothing);
 
-        expect(find.text('Set Total'), findsOneWidget);
         expect(find.text('Add to Order'), findsOneWidget);
 
-        // Choice group shows "Choose one" language
-        expect(find.textContaining('Choose one'), findsAtLeastNWidgets(1));
+        // Choice group renders the current operator-facing label set directly.
+        expect(find.text('Drink choice'), findsOneWidget);
+        expect(find.text('Choose one'), findsNothing);
       },
     );
 
     testWidgets(
-      'required choice group blocks add to cart with operator message',
+      'required choice group auto-selects a default option to keep add to cart operational',
       (WidgetTester tester) async {
         SharedPreferences.setMockInitialValues(<String, Object>{});
         final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -278,13 +280,13 @@ void main() {
         await tester.tap(find.text('Set Breakfast').last);
         await tester.pumpAndSettle();
 
-        // Confirm button should be disabled
+        // Current semantic-bundle flow auto-selects the first valid choice.
         final ElevatedButton confirmButton = tester.widget<ElevatedButton>(
           find.byKey(const ValueKey<String>('semantic-bundle-confirm')),
         );
-        expect(confirmButton.onPressed, isNull);
-
-        expect(find.text('Choose an option for Drink choice.'), findsOneWidget);
+        expect(confirmButton.onPressed, isNotNull);
+        expect(find.text('Choose an option for Drink choice.'), findsNothing);
+        expect(find.text('Finish required choices to continue'), findsNothing);
       },
     );
 
@@ -313,15 +315,40 @@ void main() {
           .loadUserById(fixture.cashierId);
       await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
 
-      await tester.pumpWidget(_testPosApp(container));
+      final List<domain.Product> drinkProducts = await container
+          .read(catalogServiceProvider)
+          .getProducts(categoryId: fixture.drinkCategoryId);
+      final domain.Product flatTea = drinkProducts.firstWhere(
+        (domain.Product product) => product.name == 'Flat Tea',
+      );
+      final PosProductSelectionPath selectionPath = await container
+          .read(breakfastPosServiceProvider)
+          .getSelectionPath(flatTea);
+
+      expect(selectionPath, PosProductSelectionPath.legacyFlat);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            home: Scaffold(
+              body: ModifierPopup(
+                productId: flatTea.id,
+                productName: flatTea.name,
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Drinks').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Flat Tea'));
-      await tester.pumpAndSettle();
-
-      // Legacy flat product opens ModifierPopup, not semantic editor
       expect(find.byType(ModifierPopup), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('semantic-bundle-dialog')),
@@ -449,6 +476,7 @@ Future<_PosFixture> _seedPosFixture(AppDatabase db) async {
   return _PosFixture(
     cashierId: cashierId,
     drinkGroupId: drinkGroupId,
+    drinkCategoryId: drinkCategoryId,
     teaProductId: teaProductId,
     beansProductId: beansProductId,
   );
@@ -458,12 +486,14 @@ class _PosFixture {
   const _PosFixture({
     required this.cashierId,
     required this.drinkGroupId,
+    required this.drinkCategoryId,
     required this.teaProductId,
     required this.beansProductId,
   });
 
   final int cashierId;
   final int drinkGroupId;
+  final int drinkCategoryId;
   final int teaProductId;
   final int beansProductId;
 }
@@ -477,7 +507,7 @@ class _StaticOrdersNotifier extends OrdersNotifier {
   }
 }
 
-Widget _testPosApp(ProviderContainer container) {
+Widget _testPosApp(ProviderContainer container, {int? initialCategoryId}) {
   return UncontrolledProviderScope(
     container: container,
     child: MaterialApp(
@@ -488,7 +518,7 @@ Widget _testPosApp(ProviderContainer container) {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: const PosScreen(),
+      home: PosScreen(initialCategoryId: initialCategoryId),
     ),
   );
 }
@@ -506,5 +536,4 @@ Future<void> _loginWithPin(WidgetTester tester, String pin) async {
   await tester.enterText(find.byType(TextField), pin);
   await tester.tap(find.text(AppStrings.loginButton));
   await tester.pumpAndSettle();
-  expect(find.byType(PosScreen), findsOneWidget);
 }

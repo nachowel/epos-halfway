@@ -13,6 +13,7 @@ import 'package:epos_app/data/sync/sync_transaction_graph.dart';
 import 'package:epos_app/domain/models/breakfast_line_edit.dart';
 import 'package:epos_app/domain/models/order_modifier.dart';
 import 'package:epos_app/domain/models/payment.dart';
+import 'package:epos_app/domain/models/product_modifier.dart';
 import 'package:epos_app/domain/models/transaction.dart';
 import 'package:epos_app/domain/models/transaction_line.dart';
 import 'package:epos_app/domain/models/user.dart';
@@ -117,6 +118,8 @@ void main() {
             'unit_price_minor',
             'price_effect_minor',
             'sort_key',
+            'price_behavior',
+            'ui_section',
           }),
         );
         expect(modifierRecord.payload.containsKey('id'), isFalse);
@@ -136,6 +139,8 @@ void main() {
         expect(modifierRecord.payload['unit_price_minor'], 75);
         expect(modifierRecord.payload['price_effect_minor'], 75);
         expect(modifierRecord.payload['sort_key'], 0);
+        expect(modifierRecord.payload['price_behavior'], isNull);
+        expect(modifierRecord.payload['ui_section'], isNull);
 
         final SyncGraphRecord paymentRecord = _recordFor(graph, 'payments');
         expect(
@@ -154,6 +159,34 @@ void main() {
           paymentRecord.payload['transaction_uuid'],
           fixture.transaction.uuid,
         );
+      },
+    );
+
+    test(
+      'structured burger modifiers include price behavior and UI section',
+      () async {
+        final AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final _PayloadFixture fixture = await _createPaidFixture(
+          db,
+          withModifier: true,
+          modifierPriceBehavior: ModifierPriceBehavior.paid,
+          modifierUiSection: ModifierUiSection.addIns,
+        );
+        final SyncTransactionGraph graph =
+            await SyncPayloadRepository(
+              db,
+            ).buildTransactionGraph(fixture.transaction.uuid) ??
+            (throw StateError('Expected a paid graph payload.'));
+
+        final SyncGraphRecord modifierRecord = _recordFor(
+          graph,
+          'order_modifiers',
+        );
+
+        expect(modifierRecord.payload['item_name'], 'Extra Shot');
+        expect(modifierRecord.payload['price_behavior'], 'paid');
+        expect(modifierRecord.payload['ui_section'], 'add_ins');
       },
     );
 
@@ -216,26 +249,23 @@ void main() {
         );
         expect(lineRecord.payload['removal_discount_total_minor'], 0);
 
-        final SyncGraphRecord extraAddRecord = modifierRecords.singleWhere(
+        final SyncGraphRecord choiceRecord = modifierRecords.singleWhere(
           (SyncGraphRecord record) =>
-              record.payload['charge_reason'] == 'extra_add',
+              record.payload['charge_reason'] == 'included_choice',
         );
-        expect(
-          extraAddRecord.payload['item_product_id'],
-          fixture.toastProductId,
-        );
-        expect(extraAddRecord.payload['charge_reason'], 'extra_add');
-        expect(extraAddRecord.payload['unit_price_minor'], 100);
-        expect(extraAddRecord.payload['price_effect_minor'], 200);
-        expect(extraAddRecord.payload['sort_key'], isNonZero);
-        expect(extraAddRecord.payload.containsKey('extra_price_minor'), isTrue);
-        expect(extraAddRecord.payload['extra_price_minor'], 9999);
+        expect(choiceRecord.payload['item_product_id'], fixture.toastProductId);
+        expect(choiceRecord.payload['charge_reason'], 'included_choice');
+        expect(choiceRecord.payload['unit_price_minor'], 100);
+        expect(choiceRecord.payload['price_effect_minor'], 0);
+        expect(choiceRecord.payload['sort_key'], isNonZero);
+        expect(choiceRecord.payload.containsKey('extra_price_minor'), isTrue);
+        expect(choiceRecord.payload['extra_price_minor'], 9999);
 
-        expect(transactionRecord.payload['modifier_total_minor'], 200);
-        expect(lineRecord.payload['line_total_minor'], 600);
+        expect(transactionRecord.payload['modifier_total_minor'], 0);
+        expect(lineRecord.payload['line_total_minor'], 400);
         expect(
-          extraAddRecord.payload['price_effect_minor'],
-          isNot(extraAddRecord.payload['extra_price_minor']),
+          choiceRecord.payload['price_effect_minor'],
+          isNot(choiceRecord.payload['extra_price_minor']),
         );
 
         final List<String> payloadModifierUuids = modifierRecords
@@ -273,6 +303,8 @@ class _BreakfastPayloadFixture {
 Future<_PayloadFixture> _createPaidFixture(
   AppDatabase db, {
   required bool withModifier,
+  ModifierPriceBehavior? modifierPriceBehavior,
+  ModifierUiSection? modifierUiSection,
 }) async {
   final SyncQueueRepository syncQueueRepository = SyncQueueRepository(db);
   final _FixtureContext fixture = await _createFixtureContext(
@@ -285,6 +317,8 @@ Future<_PayloadFixture> _createPaidFixture(
       action: ModifierAction.add,
       itemName: 'Extra Shot',
       extraPriceMinor: 75,
+      priceBehavior: modifierPriceBehavior,
+      uiSection: modifierUiSection,
     );
   }
   await fixture.orderService.sendOrder(
@@ -439,9 +473,9 @@ Future<_BreakfastPayloadFixture> _createPaidBreakfastPayloadFixture(
         app_db.ModifierGroupsCompanion.insert(
           productId: set4ProductId,
           name: 'Toast or Bread',
-          minSelect: const Value<int>(0),
-          maxSelect: const Value<int>(2),
-          includedQuantity: const Value<int>(2),
+          minSelect: const Value<int>(1),
+          maxSelect: const Value<int>(1),
+          includedQuantity: const Value<int>(1),
           sortOrder: const Value<int>(2),
         ),
       );
@@ -541,7 +575,7 @@ Future<_BreakfastPayloadFixture> _createPaidBreakfastPayloadFixture(
     edit: BreakfastLineEdit.chooseGroup(
       groupId: toastBreadGroupId,
       selectedItemProductId: toastProductId,
-      quantity: 4,
+      quantity: 1,
     ),
   );
 
@@ -559,7 +593,8 @@ Future<_BreakfastPayloadFixture> _createPaidBreakfastPayloadFixture(
 
   final int extraAddId = semanticRows
       .singleWhere(
-        (QueryRow row) => row.read<String>('charge_reason') == 'extra_add',
+        (QueryRow row) =>
+            row.read<String>('charge_reason') == 'included_choice',
       )
       .read<int>('id');
   await db.customStatement(

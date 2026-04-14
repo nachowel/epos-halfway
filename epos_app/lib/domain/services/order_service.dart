@@ -1,4 +1,5 @@
 import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../core/errors/exceptions.dart';
@@ -23,6 +24,7 @@ import '../models/order_modifier.dart';
 import '../models/payment.dart';
 import '../models/print_job.dart';
 import '../models/product.dart';
+import '../models/product_modifier.dart';
 import '../models/transaction.dart';
 import '../models/transaction_line.dart';
 import '../models/user.dart';
@@ -35,6 +37,16 @@ import 'breakfast_requested_state_transformer.dart';
 import 'meal_adjustment_profile_validation_service.dart';
 import 'meal_customization_engine.dart';
 import 'shift_session_service.dart';
+
+class OrderSummariesPage {
+  const OrderSummariesPage({
+    required this.orderSummaries,
+    required this.hasMore,
+  });
+
+  final List<OpenOrderSummary> orderSummaries;
+  final bool hasMore;
+}
 
 class OrderService {
   OrderService({
@@ -218,12 +230,16 @@ class OrderService {
     required ModifierAction action,
     required String itemName,
     required int extraPriceMinor,
+    ModifierPriceBehavior? priceBehavior,
+    ModifierUiSection? uiSection,
   }) async {
     final OrderModifier modifier = await _transactionRepository.addModifier(
       transactionLineId: transactionLineId,
       action: action,
       itemName: itemName,
       extraPriceMinor: extraPriceMinor,
+      priceBehavior: priceBehavior,
+      uiSection: uiSection,
     );
     final int transactionId = await _transactionRepository
         .getTransactionIdByLine(transactionLineId);
@@ -397,6 +413,23 @@ class OrderService {
             configuration: configuration,
             requestedState: nextRequestedState,
           );
+      final List<BreakfastEditErrorCode> invalidChoiceTransitionCodes =
+          _validateRequiredChoiceTransitions(
+            configuration: configuration,
+            currentRequestedState: currentRequestedState,
+            nextRequestedState: normalizedRequestedState,
+          );
+      if (invalidChoiceTransitionCodes.isNotEmpty) {
+        _logBreakfastEditRejected(
+          lineUuid: workingLine.uuid,
+          transactionLineId: workingLine.id,
+          codes: invalidChoiceTransitionCodes,
+        );
+        throw BreakfastEditRejectedException(
+          codes: invalidChoiceTransitionCodes,
+          transactionLineId: workingLine.id,
+        );
+      }
 
       final BreakfastRebuildResult rebuildResult = _breakfastRebuildEngine
           .rebuild(
@@ -495,7 +528,8 @@ class OrderService {
         TransactionLine line,
         TransactionStatus status,
         DateTime transactionUpdatedAt,
-      })? initialContext = await _transactionRepository.getLineContext(
+      })?
+      initialContext = await _transactionRepository.getLineContext(
         transactionLineId,
       );
       if (initialContext == null) {
@@ -571,7 +605,8 @@ class OrderService {
         throw error;
       }
 
-      final Product product = await _requiredProductRepository.getById(
+      final Product product =
+          await _requiredProductRepository.getById(
             initialContext.line.productId,
           ) ??
           (throw NotFoundException(
@@ -609,7 +644,9 @@ class OrderService {
           transactionLineId: previousLineId,
           snapshot: nextSnapshot,
         );
-        persistedLine = await _transactionRepository.getLineById(previousLineId);
+        persistedLine = await _transactionRepository.getLineById(
+          previousLineId,
+        );
       } else {
         final TransactionLine? existingLine = await _transactionRepository
             .findDraftMealCustomizationLineByIdentity(
@@ -623,7 +660,9 @@ class OrderService {
             transactionLineId: existingLine.id,
             incrementBy: previousQuantity,
           );
-          await _transactionRepository.deleteDraftLineCompletely(previousLineId);
+          await _transactionRepository.deleteDraftLineCompletely(
+            previousLineId,
+          );
           persistedLine = await _transactionRepository.getLineById(
             existingLine.id,
           );
@@ -664,7 +703,8 @@ class OrderService {
           'merged_into_existing_line': mergedIntoExistingLine,
           'previous_identity': previousIdentity,
           'next_identity': nextIdentity,
-          if (mergedTargetLineId != null) 'merged_target_line_id': mergedTargetLineId,
+          if (mergedTargetLineId != null)
+            'merged_target_line_id': mergedTargetLineId,
           if (actorUserId != null) 'actor_user_id': actorUserId,
         },
       );
@@ -690,7 +730,8 @@ class OrderService {
         TransactionLine line,
         TransactionStatus status,
         DateTime transactionUpdatedAt,
-      })? initialContext = await _transactionRepository.getLineContext(
+      })?
+      initialContext = await _transactionRepository.getLineContext(
         transactionLineId,
       );
       if (initialContext == null) {
@@ -728,7 +769,8 @@ class OrderService {
         );
       }
 
-      final Product product = await _requiredProductRepository.getById(
+      final Product product =
+          await _requiredProductRepository.getById(
             initialContext.line.productId,
           ) ??
           (throw NotFoundException(
@@ -758,7 +800,9 @@ class OrderService {
 
       // Step 1: Decrement the original grouped line by 1.
       // Precondition guarantees qty >= 2, so this leaves qty >= 1.
-      await _transactionRepository.decrementLineQuantityOrDelete(previousLineId);
+      await _transactionRepository.decrementLineQuantityOrDelete(
+        previousLineId,
+      );
 
       // Step 2: Determine where the split unit lands.
       TransactionLine? resultLine;
@@ -794,7 +838,9 @@ class OrderService {
             transactionLineId: existingLine.id,
             incrementBy: 1,
           );
-          resultLine = await _transactionRepository.getLineById(existingLine.id);
+          resultLine = await _transactionRepository.getLineById(
+            existingLine.id,
+          );
           mergedIntoExistingLine = true;
           mergeTargetLineId = existingLine.id;
         } else {
@@ -824,8 +870,8 @@ class OrderService {
         message: mergedIntoExistingLine
             ? 'Single unit split from grouped line and merged into an existing line.'
             : nextIdentity == previousIdentity
-                ? 'Single unit edit produced same identity; re-merged into original line.'
-                : 'Single unit split from grouped line and created as new line.',
+            ? 'Single unit edit produced same identity; re-merged into original line.'
+            : 'Single unit split from grouped line and created as new line.',
         metadata: <String, Object?>{
           'transaction_id': transactionId,
           'source_line_id': previousLineId,
@@ -836,7 +882,8 @@ class OrderService {
           'merged_into_existing_line': mergedIntoExistingLine,
           'previous_identity': previousIdentity,
           'next_identity': nextIdentity,
-          if (mergeTargetLineId != null) 'merge_target_line_id': mergeTargetLineId,
+          if (mergeTargetLineId != null)
+            'merge_target_line_id': mergeTargetLineId,
           if (actorUserId != null) 'actor_user_id': actorUserId,
         },
       );
@@ -859,7 +906,8 @@ class OrderService {
         TransactionLine line,
         TransactionStatus status,
         DateTime transactionUpdatedAt,
-      })? initialContext = await _transactionRepository.getLineContext(
+      })?
+      initialContext = await _transactionRepository.getLineContext(
         transactionLineId,
       );
       if (initialContext == null) {
@@ -886,7 +934,8 @@ class OrderService {
         );
       }
 
-      final Product product = await _requiredProductRepository.getById(
+      final Product product =
+          await _requiredProductRepository.getById(
             initialContext.line.productId,
           ) ??
           (throw NotFoundException(
@@ -1048,11 +1097,6 @@ class OrderService {
         transactionId: transactionId,
         paidAt: paidAt,
       );
-      await _printJobRepository?.ensureQueued(
-        transactionId: transactionId,
-        target: PrintJobTarget.receipt,
-        now: paidAt,
-      );
       await _enqueueSyncGraph(transactionUuid: refreshedTransaction.uuid);
       _logger.audit(
         eventType: 'order_paid',
@@ -1182,6 +1226,8 @@ class OrderService {
             action: modifier.action,
             itemName: modifier.itemName,
             extraPriceMinor: modifier.extraPriceMinor,
+            priceBehavior: modifier.priceBehavior,
+            uiSection: modifier.uiSection,
           );
         }
       }
@@ -1246,9 +1292,10 @@ class OrderService {
       await _transactionStateRepository.transitionDraftOrderToSent(
         transactionId: transactionId,
       );
-      await _printJobRepository?.ensureQueued(
+      await _ensurePrintJobQueued(
         transactionId: transactionId,
         target: PrintJobTarget.kitchen,
+        source: 'sendOrder',
       );
       _logger.audit(
         eventType: 'order_sent',
@@ -1257,6 +1304,25 @@ class OrderService {
         metadata: <String, Object?>{'user_id': currentUser.id},
       );
     });
+  }
+
+  Future<void> queueReceiptPrintJob({required int transactionId}) async {
+    final Transaction? transaction = await _transactionRepository.getById(
+      transactionId,
+    );
+    if (transaction == null) {
+      throw NotFoundException('Transaction not found: $transactionId');
+    }
+    if (!OrderLifecyclePolicy.canPrintReceipt(transaction.status)) {
+      throw InvalidStateTransitionException(
+        'Receipt can be printed only for paid transactions.',
+      );
+    }
+    await _ensurePrintJobQueued(
+      transactionId: transactionId,
+      target: PrintJobTarget.receipt,
+      source: 'queueReceiptPrintJob',
+    );
   }
 
   Future<void> cancelOrder({
@@ -1292,7 +1358,7 @@ class OrderService {
       _logger.warn(
         eventType: 'order_cancelled',
         entityId: transaction.uuid,
-        message: 'Open order cancelled.',
+        message: 'Sent order cancelled.',
         metadata: <String, Object?>{'cancelled_by': currentUser.id},
       );
     });
@@ -1362,26 +1428,151 @@ class OrderService {
     return _transactionRepository.getActiveOrders(shiftId: shiftId);
   }
 
+  Future<List<Transaction>> listOrders({
+    List<TransactionStatus>? statuses,
+    DateTime? startCreatedAtInclusive,
+    DateTime? endCreatedAtExclusive,
+    int? transactionId,
+    int? limit,
+    int offset = 0,
+  }) {
+    return _transactionRepository.listOrders(
+      statuses: statuses,
+      startCreatedAtInclusive: startCreatedAtInclusive,
+      endCreatedAtExclusive: endCreatedAtExclusive,
+      transactionId: transactionId,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
   Future<List<Transaction>> getOrdersByShift(int shiftId) {
     return _transactionRepository.getByShift(shiftId);
   }
 
+  Future<OrderSummariesPage> getOrderSummaries({
+    List<TransactionStatus>? statuses,
+    DateTime? startCreatedAtInclusive,
+    DateTime? endCreatedAtExclusive,
+    int? transactionId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final List<Transaction> orders = await listOrders(
+      statuses: statuses,
+      startCreatedAtInclusive: startCreatedAtInclusive,
+      endCreatedAtExclusive: endCreatedAtExclusive,
+      transactionId: transactionId,
+      limit: limit + 1,
+      offset: offset,
+    );
+    final bool hasMore = orders.length > limit;
+    final List<Transaction> visibleOrders = hasMore
+        ? orders.take(limit).toList(growable: false)
+        : orders;
+    final Map<int, List<TransactionLine>> linesByTransactionId =
+        await _refetchLinesForOrders(visibleOrders);
+
+    return OrderSummariesPage(
+      orderSummaries: visibleOrders
+          .map((Transaction transaction) {
+            final List<TransactionLine> lines =
+                linesByTransactionId[transaction.id] ??
+                const <TransactionLine>[];
+            return OpenOrderSummary(
+              transaction: transaction,
+              itemCount: lines.fold<int>(
+                0,
+                (int sum, TransactionLine line) => sum + line.quantity,
+              ),
+              shortContent: _buildShortContent(lines),
+            );
+          })
+          .toList(growable: false),
+      hasMore: hasMore,
+    );
+  }
+
+  Future<List<OpenOrderSummary>> getRecentPaidOrdersForToday({
+    int limit = 5,
+  }) async {
+    if (limit <= 0) {
+      return const <OpenOrderSummary>[];
+    }
+
+    final DateTime now = DateTime.now();
+    final DateTime todayStart = DateTime(now.year, now.month, now.day);
+    final DateTime tomorrowStart = todayStart.add(const Duration(days: 1));
+    final List<Transaction> paidOrders = await _transactionRepository
+        .getPaidTransactionsBetween(
+          startInclusive: todayStart,
+          endExclusive: tomorrowStart,
+        );
+    final List<Transaction> visibleOrders = paidOrders
+        .take(limit)
+        .toList(growable: false);
+    final Map<int, List<TransactionLine>> linesByTransactionId =
+        await _refetchLinesForOrders(visibleOrders);
+
+    return visibleOrders
+        .map((Transaction transaction) {
+          final List<TransactionLine> lines =
+              linesByTransactionId[transaction.id] ?? const <TransactionLine>[];
+          return OpenOrderSummary(
+            transaction: transaction,
+            itemCount: lines.fold<int>(
+              0,
+              (int sum, TransactionLine line) => sum + line.quantity,
+            ),
+            shortContent: _buildShortContent(lines),
+          );
+        })
+        .toList(growable: false);
+  }
+
   Future<List<OpenOrderSummary>> getOrderSummariesByShift(int shiftId) async {
     final List<Transaction> orders = await getActiveOrders(shiftId: shiftId);
+    final Map<int, List<TransactionLine>> linesByTransactionId =
+        await _refetchLinesForOrders(orders);
 
-    return Future.wait(
-      orders.map((Transaction transaction) async {
-        final List<TransactionLine> lines = await getOrderLines(transaction.id);
-        return OpenOrderSummary(
-          transaction: transaction,
-          itemCount: lines.fold<int>(
-            0,
-            (int sum, TransactionLine line) => sum + line.quantity,
-          ),
-          shortContent: _buildShortContent(lines),
-        );
-      }),
-    );
+    return orders
+        .map((Transaction transaction) {
+          final List<TransactionLine> lines =
+              linesByTransactionId[transaction.id] ?? const <TransactionLine>[];
+          return OpenOrderSummary(
+            transaction: transaction,
+            itemCount: lines.fold<int>(
+              0,
+              (int sum, TransactionLine line) => sum + line.quantity,
+            ),
+            shortContent: _buildShortContent(lines),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  /// Returns summaries for all active (draft + sent) orders across every
+  /// shift. Uses the exact same [getActiveOrders] query that the exit-safety
+  /// guard relies on, so the two can never diverge.
+  Future<List<OpenOrderSummary>> getActiveOrderSummaries() async {
+    final List<Transaction> orders = await getActiveOrders();
+    final Map<int, List<TransactionLine>> linesByTransactionId =
+        await _refetchLinesForOrders(orders);
+
+    return orders
+        .map((Transaction transaction) {
+          final List<TransactionLine> lines =
+              linesByTransactionId[transaction.id] ?? const <TransactionLine>[];
+          return OpenOrderSummary(
+            transaction: transaction,
+            itemCount: lines.fold<int>(
+              0,
+              (int sum, TransactionLine line) => sum + line.quantity,
+            ),
+            shortContent: _buildShortContent(lines),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<Transaction?> getOrderById(int transactionId) {
@@ -1580,6 +1771,54 @@ class OrderService {
     return codes;
   }
 
+  List<BreakfastEditErrorCode> _validateRequiredChoiceTransitions({
+    required BreakfastSetConfiguration configuration,
+    required BreakfastRequestedState currentRequestedState,
+    required BreakfastRequestedState nextRequestedState,
+  }) {
+    final Map<int, BreakfastChosenGroupRequest> currentChoicesByGroupId =
+        <int, BreakfastChosenGroupRequest>{
+          for (final BreakfastChosenGroupRequest choice
+              in currentRequestedState.chosenGroups)
+            choice.groupId: choice,
+        };
+    final Map<int, BreakfastChosenGroupRequest> nextChoicesByGroupId =
+        <int, BreakfastChosenGroupRequest>{
+          for (final BreakfastChosenGroupRequest choice
+              in nextRequestedState.chosenGroups)
+            choice.groupId: choice,
+        };
+    final Set<BreakfastEditErrorCode> codes = <BreakfastEditErrorCode>{};
+
+    for (final BreakfastChoiceGroupConfig group in configuration.choiceGroups) {
+      if (group.minSelect <= 0) {
+        continue;
+      }
+      final BreakfastChosenGroupRequest? currentChoice =
+          currentChoicesByGroupId[group.groupId];
+      final BreakfastChosenGroupRequest? nextChoice =
+          nextChoicesByGroupId[group.groupId];
+      final bool hadConcreteSelection =
+          currentChoice != null &&
+          currentChoice.requestedQuantity > 0 &&
+          currentChoice.selectedItemProductId != null;
+      final bool removedConcreteSelection =
+          nextChoice == null ||
+          nextChoice.requestedQuantity <= 0 ||
+          nextChoice.selectedItemProductId == null;
+      final bool nextIsExplicitNone =
+          nextChoice != null &&
+          nextChoice.requestedQuantity > 0 &&
+          nextChoice.selectedItemProductId == null;
+      if ((nextIsExplicitNone && !group.allowsExplicitNoneSelection) ||
+          (hadConcreteSelection && removedConcreteSelection)) {
+        codes.add(BreakfastEditErrorCode.invalidChoiceQuantity);
+      }
+    }
+
+    return codes.toList(growable: false);
+  }
+
   String _buildShortContent(List<TransactionLine> lines) {
     if (lines.isEmpty) {
       return 'No items';
@@ -1597,6 +1836,14 @@ class OrderService {
     return quantityByProduct.entries
         .map((MapEntry<String, int> entry) => '${entry.value} ${entry.key}')
         .join(', ');
+  }
+
+  Future<Map<int, List<TransactionLine>>> _refetchLinesForOrders(
+    List<Transaction> orders,
+  ) {
+    return _transactionRepository.getLinesByTransactionIds(
+      orders.map((Transaction transaction) => transaction.id),
+    );
   }
 
   Future<void> _enqueueSyncGraph({required String transactionUuid}) async {
@@ -1632,6 +1879,32 @@ class OrderService {
         !saleAvailability.isVisibleOnPos) {
       throw ValidationException('Product is not available for sale.');
     }
+  }
+
+  Future<void> _ensurePrintJobQueued({
+    required int transactionId,
+    required PrintJobTarget target,
+    required String source,
+  }) async {
+    final PrintJobRepository? printJobRepository = _printJobRepository;
+    if (printJobRepository == null) {
+      return;
+    }
+    final PrintJob? existing = await printJobRepository
+        .getByTransactionIdAndTarget(
+          transactionId: transactionId,
+          target: target,
+        );
+    if (existing == null) {
+      debugPrint(
+        '[PRINT_JOB] creating job'
+        ' tx=$transactionId target=${target.name} source=$source',
+      );
+    }
+    await printJobRepository.ensureQueued(
+      transactionId: transactionId,
+      target: target,
+    );
   }
 
   Future<_StandardProductFlowDecision> _decideStandardProductFlow({
@@ -1722,19 +1995,21 @@ class OrderService {
       throw MealCustomizationRuntimeConfigurationException(
         productId: product.id,
         profileId: profileId,
-          detail: validationResult.message,
+        detail: validationResult.message,
       );
     }
 
     if (enforceBreakfastCompatibility) {
-      final Set<int> breakfastProductIds = await repository
-          .loadBreakfastSemanticProductIds(<int>[product.id]);
-      if (breakfastProductIds.contains(product.id)) {
+      final Set<int> breakfastRootProductIds = await repository
+          .loadBreakfastSemanticRootProductIds(<int>[product.id]);
+      if (breakfastRootProductIds.contains(product.id)) {
         throw MealCustomizationRuntimeConfigurationException(
           productId: product.id,
           profileId: profileId,
-          detail:
-              'Breakfast semantic products cannot carry a meal-adjustment profile.',
+          detail: _buildBreakfastCompatibilityMessage(
+            productName: product.name,
+            profileName: draft.name,
+          ),
         );
       }
     }
@@ -1743,6 +2018,13 @@ class OrderService {
       product: product,
       profile: draft.toRuntimeProfile(profileId: profileId),
     );
+  }
+
+  String _buildBreakfastCompatibilityMessage({
+    required String productName,
+    required String profileName,
+  }) {
+    return 'Product "$productName" cannot use meal-adjustment profile "$profileName" because it is configured as a breakfast semantic root product.';
   }
 
   Future<TransactionLine> _addMealCustomizationToOrder({
@@ -1772,11 +2054,8 @@ class OrderService {
     }
 
     await _ensureProductAvailableForSale(context.product.id);
-    final MealCustomizationResolvedSnapshot snapshot =
-        _mealCustomizationEngine.evaluate(
-          profile: context.profile,
-          request: normalizedRequest,
-        );
+    final MealCustomizationResolvedSnapshot snapshot = _mealCustomizationEngine
+        .evaluate(profile: context.profile, request: normalizedRequest);
     final TransactionLine? persistedLine = await _transactionRepository
         .runInTransaction(() async {
           final TransactionLine? existingLine = await _transactionRepository

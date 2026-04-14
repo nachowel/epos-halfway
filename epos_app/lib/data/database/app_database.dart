@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
@@ -8,8 +9,12 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/errors/exceptions.dart';
 import '../../domain/models/migration_log_entry.dart';
+import '../../domain/models/printer_settings.dart';
+import '../../domain/models/sandwich.dart';
 
 part 'app_database.g.dart';
+
+const String _defaultSandwichSauceOptionsJson = '[]';
 
 class Users extends Table {
   IntColumn get id => integer().autoIncrement()();
@@ -94,8 +99,23 @@ class MealAdjustmentProfiles extends Table {
 
   TextColumn get description => text().nullable()();
 
+  TextColumn get profileKind =>
+      text().named('profile_kind').withDefault(const Constant('standard'))();
+
   IntColumn get freeSwapLimit =>
       integer().named('free_swap_limit').withDefault(const Constant(0))();
+
+  IntColumn get sandwichSurchargeMinor => integer()
+      .named('sandwich_surcharge_minor')
+      .withDefault(const Constant(100))();
+
+  IntColumn get baguetteSurchargeMinor => integer()
+      .named('baguette_surcharge_minor')
+      .withDefault(const Constant(180))();
+
+  TextColumn get sandwichSauceOptionsJson => text()
+      .named('sandwich_sauce_options_json')
+      .withDefault(const Constant(_defaultSandwichSauceOptionsJson))();
 
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 
@@ -106,7 +126,36 @@ class MealAdjustmentProfiles extends Table {
   @override
   List<String> get customConstraints => <String>[
     'CHECK (length(trim(name)) > 0)',
+    "CHECK (profile_kind IN ('standard','sandwich'))",
     'CHECK (free_swap_limit >= 0)',
+    'CHECK (sandwich_surcharge_minor >= 0)',
+    'CHECK (baguette_surcharge_minor >= 0)',
+  ];
+}
+
+class SandwichSauceMigrationAudits extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get profileId => integer().named('profile_id').nullable()();
+
+  TextColumn get legacyValue => text().named('legacy_value')();
+
+  IntColumn get matchedProductId =>
+      integer().named('matched_product_id').nullable()();
+
+  TextColumn get matchedProductName =>
+      text().named('matched_product_name').nullable()();
+
+  TextColumn get status => text()();
+
+  TextColumn get detail => text().nullable()();
+
+  DateTimeColumn get createdAt =>
+      dateTime().named('created_at').withDefault(currentDateAndTime)();
+
+  @override
+  List<String> get customConstraints => <String>[
+    "CHECK (status IN ('mapped','unmatched','ambiguous'))",
   ];
 }
 
@@ -288,13 +337,19 @@ class ProductModifiers extends Table {
 
   IntColumn get extraPriceMinor => integer().withDefault(const Constant(0))();
 
+  TextColumn get priceBehavior => text().named('price_behavior').nullable()();
+
+  TextColumn get uiSection => text().named('ui_section').nullable()();
+
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 
   @override
   List<String> get customConstraints => <String>[
     "CHECK (type IN ('included','extra','choice'))",
     'CHECK (extra_price_minor >= 0)',
-    "CHECK ((type = 'choice' AND group_id IS NOT NULL AND item_product_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))",
+    "CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid'))",
+    "CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins'))",
+    "CHECK ((type = 'choice' AND group_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))",
   ];
 }
 
@@ -444,7 +499,7 @@ class Transactions extends Table {
 
   IntColumn get tableNumber => integer().nullable()();
 
-  TextColumn get status => text().withDefault(const Constant('open'))();
+  TextColumn get status => text().withDefault(const Constant('draft'))();
 
   IntColumn get subtotalMinor => integer().withDefault(const Constant(0))();
 
@@ -548,12 +603,18 @@ class OrderModifiers extends Table {
 
   IntColumn get sortKey => integer().withDefault(const Constant(0))();
 
+  TextColumn get priceBehavior => text().named('price_behavior').nullable()();
+
+  TextColumn get uiSection => text().named('ui_section').nullable()();
+
   @override
   List<String> get customConstraints => <String>[
     "CHECK (\"action\" IN ('remove','add','choice'))",
     'CHECK (quantity > 0)',
     'CHECK (extra_price_minor >= 0)',
     'CHECK (unit_price_minor >= 0)',
+    "CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid'))",
+    "CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins'))",
     "CHECK (charge_reason IS NULL OR charge_reason IN ('extra_add','free_swap','paid_swap','included_choice','removal_discount','combo_discount'))",
     "CHECK (\"action\" != 'choice' OR charge_reason = 'included_choice')",
   ];
@@ -796,7 +857,23 @@ class PrinterSettings extends Table {
 
   TextColumn get deviceName => text()();
 
+  // From schema v32 onward this column is not bluetooth-only:
+  // - bluetooth rows keep the bluetooth address / MAC
+  // - ethernet rows store the normalized host for compatibility with
+  //   existing call sites that still read deviceAddress
   TextColumn get deviceAddress => text()();
+
+  TextColumn get connectionType => text().nullable().check(
+    connectionType.isNull() |
+        connectionType.isIn(const <String>['bluetooth', 'ethernet']),
+  )();
+
+  TextColumn get ipAddress => text().nullable()();
+
+  IntColumn get port => integer().nullable().check(
+    port.isNull() |
+        port.isBiggerOrEqualValue(1) & port.isSmallerOrEqualValue(65535),
+  )();
 
   IntColumn get paperWidth => integer().withDefault(const Constant(80))();
 
@@ -843,6 +920,7 @@ class SyncQueue extends Table {
     Categories,
     Products,
     MealAdjustmentProfiles,
+    SandwichSauceMigrationAudits,
     MealAdjustmentProfileComponents,
     MealAdjustmentComponentOptions,
     MealAdjustmentProfileExtras,
@@ -878,7 +956,7 @@ class AppDatabase extends _$AppDatabase {
     return AppDatabase(NativeDatabase(file));
   }
 
-  static const int currentSchemaVersion = 25;
+  static const int currentSchemaVersion = 32;
   final List<MigrationLogEntry> _migrationHistory = <MigrationLogEntry>[];
   MigrationLogEntry? _lastMigrationFailure;
 
@@ -908,11 +986,13 @@ class AppDatabase extends _$AppDatabase {
             await _createBaseTables();
             await _createFreshPathFkEmulation();
           }
+          await _createSyncRootSnapshotTable();
           await _seedDefaultMenuSettings();
           await _createMealCustomizationSnapshotSchema();
           await _createIndexes();
           await _createMealCustomizationSnapshotIndexes();
           await _createMealCustomizationSnapshotFkEmulation();
+          await _migrateToV32();
         },
       );
     },
@@ -1109,6 +1189,62 @@ class AppDatabase extends _$AppDatabase {
           action: _migrateToV25,
         );
       }
+      if (from < 26) {
+        await _runMigrationStep(
+          step: 'migrate_v26',
+          fromVersion: from < 25 ? 25 : from,
+          toVersion: 26,
+          action: _migrateToV26,
+        );
+      }
+      if (from < 27) {
+        await _runMigrationStep(
+          step: 'migrate_v27',
+          fromVersion: from < 26 ? 26 : from,
+          toVersion: 27,
+          action: _migrateToV27,
+        );
+      }
+      if (from < 28) {
+        await _runMigrationStep(
+          step: 'migrate_v28',
+          fromVersion: from < 27 ? 27 : from,
+          toVersion: 28,
+          action: _migrateToV28,
+        );
+      }
+      if (from < 29) {
+        await _runMigrationStep(
+          step: 'migrate_v29',
+          fromVersion: from < 28 ? 28 : from,
+          toVersion: 29,
+          action: _migrateToV29,
+        );
+      }
+      if (from < 30) {
+        await _runMigrationStep(
+          step: 'migrate_v30',
+          fromVersion: from < 29 ? 29 : from,
+          toVersion: 30,
+          action: _migrateToV30,
+        );
+      }
+      if (from < 31) {
+        await _runMigrationStep(
+          step: 'migrate_v31',
+          fromVersion: from < 30 ? 30 : from,
+          toVersion: 31,
+          action: _migrateToV31,
+        );
+      }
+      if (from < 32) {
+        await _runMigrationStep(
+          step: 'migrate_v32',
+          fromVersion: from < 31 ? 31 : from,
+          toVersion: 32,
+          action: _migrateToV32,
+        );
+      }
     },
     beforeOpen: (OpeningDetails details) async {
       await customStatement('PRAGMA foreign_keys = ON;');
@@ -1171,11 +1307,27 @@ class AppDatabase extends _$AppDatabase {
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT NULL,
+        profile_kind TEXT NOT NULL DEFAULT 'standard' CHECK (profile_kind IN ('standard','sandwich')),
         free_swap_limit INTEGER NOT NULL DEFAULT 0 CHECK (free_swap_limit >= 0),
+        sandwich_surcharge_minor INTEGER NOT NULL DEFAULT 100 CHECK (sandwich_surcharge_minor >= 0),
+        baguette_surcharge_minor INTEGER NOT NULL DEFAULT 180 CHECK (baguette_surcharge_minor >= 0),
+        sandwich_sauce_options_json TEXT NOT NULL DEFAULT '[]',
         is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         CHECK (length(trim(name)) > 0)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sandwich_sauce_migration_audits (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NULL,
+        legacy_value TEXT NOT NULL,
+        matched_product_id INTEGER NULL,
+        matched_product_name TEXT NULL,
+        status TEXT NOT NULL CHECK (status IN ('mapped','unmatched','ambiguous')),
+        detail TEXT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
     ''');
     await customStatement('''
@@ -1314,8 +1466,10 @@ class AppDatabase extends _$AppDatabase {
         name TEXT NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('included','extra','choice')),
         extra_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (extra_price_minor >= 0),
+        price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid')),
+        ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins')),
         is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
-        CHECK ((type = 'choice' AND group_id IS NOT NULL AND item_product_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))
+        CHECK ((type = 'choice' AND group_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))
       );
     ''');
     await customStatement('''
@@ -1380,6 +1534,8 @@ class AppDatabase extends _$AppDatabase {
         unit_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (unit_price_minor >= 0),
         price_effect_minor INTEGER NOT NULL DEFAULT 0,
         sort_key INTEGER NOT NULL DEFAULT 0,
+        price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid')),
+        ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins')),
         CHECK (action != 'choice' OR charge_reason = 'included_choice')
       );
     ''');
@@ -1493,7 +1649,10 @@ class AppDatabase extends _$AppDatabase {
         device_name TEXT NOT NULL,
         device_address TEXT NOT NULL,
         paper_width INTEGER NOT NULL DEFAULT 80 CHECK (paper_width IN (58,80)),
-        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+        connection_type TEXT NULL CHECK (connection_type IS NULL OR connection_type IN ('bluetooth','ethernet')),
+        ip_address TEXT NULL,
+        port INTEGER NULL CHECK (port IS NULL OR (port >= 1 AND port <= 65535))
       );
     ''');
     await customStatement('''
@@ -2974,11 +3133,27 @@ class AppDatabase extends _$AppDatabase {
         id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT NULL,
+        profile_kind TEXT NOT NULL DEFAULT 'standard' CHECK (profile_kind IN ('standard','sandwich')),
         free_swap_limit INTEGER NOT NULL DEFAULT 0 CHECK (free_swap_limit >= 0),
+        sandwich_surcharge_minor INTEGER NOT NULL DEFAULT 100 CHECK (sandwich_surcharge_minor >= 0),
+        baguette_surcharge_minor INTEGER NOT NULL DEFAULT 180 CHECK (baguette_surcharge_minor >= 0),
+        sandwich_sauce_options_json TEXT NOT NULL DEFAULT '[]',
         is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         CHECK (length(trim(name)) > 0)
+      );
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sandwich_sauce_migration_audits (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NULL,
+        legacy_value TEXT NOT NULL,
+        matched_product_id INTEGER NULL,
+        matched_product_name TEXT NULL,
+        status TEXT NOT NULL CHECK (status IN ('mapped','unmatched','ambiguous')),
+        detail TEXT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
     ''');
     await customStatement('''
@@ -3141,7 +3316,9 @@ class AppDatabase extends _$AppDatabase {
     try {
       await customStatement('DROP INDEX IF EXISTS idx_transactions_shift;');
       await customStatement('DROP INDEX IF EXISTS idx_transactions_user;');
-      await customStatement('ALTER TABLE transactions RENAME TO transactions_legacy_v24;');
+      await customStatement(
+        'ALTER TABLE transactions RENAME TO transactions_legacy_v24;',
+      );
       await customStatement('''
         CREATE TABLE transactions (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -3206,10 +3383,18 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('DROP TABLE transactions_legacy_v24;');
 
       await customStatement('DROP INDEX IF EXISTS idx_order_modifiers_line;');
-      await customStatement('DROP INDEX IF EXISTS idx_order_modifiers_item_product;');
-      await customStatement('DROP INDEX IF EXISTS idx_order_modifiers_item_product_semantics;');
-      await customStatement('DROP INDEX IF EXISTS idx_order_modifiers_source_group;');
-      await customStatement('ALTER TABLE order_modifiers RENAME TO order_modifiers_legacy_v24;');
+      await customStatement(
+        'DROP INDEX IF EXISTS idx_order_modifiers_item_product;',
+      );
+      await customStatement(
+        'DROP INDEX IF EXISTS idx_order_modifiers_item_product_semantics;',
+      );
+      await customStatement(
+        'DROP INDEX IF EXISTS idx_order_modifiers_source_group;',
+      );
+      await customStatement(
+        'ALTER TABLE order_modifiers RENAME TO order_modifiers_legacy_v24;',
+      );
       await customStatement('''
         CREATE TABLE order_modifiers (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -3325,6 +3510,561 @@ class AppDatabase extends _$AppDatabase {
     await _createMealCustomizationSnapshotFkEmulation();
   }
 
+  Future<void> _migrateToV26() async {
+    final bool hasProfileKind = await _tableHasColumn(
+      tableName: 'meal_adjustment_profiles',
+      columnName: 'profile_kind',
+    );
+    if (!hasProfileKind) {
+      await customStatement(
+        "ALTER TABLE meal_adjustment_profiles ADD COLUMN profile_kind TEXT NOT NULL DEFAULT 'standard' CHECK (profile_kind IN ('standard','sandwich'));",
+      );
+    }
+  }
+
+  Future<void> _migrateToV27() async {
+    final String tableName = 'meal_adjustment_profiles';
+    final bool hasSandwichSurchargeMinor = await _tableHasColumn(
+      tableName: tableName,
+      columnName: 'sandwich_surcharge_minor',
+    );
+    if (!hasSandwichSurchargeMinor) {
+      await customStatement(
+        "ALTER TABLE meal_adjustment_profiles ADD COLUMN sandwich_surcharge_minor INTEGER NOT NULL DEFAULT 100 CHECK (sandwich_surcharge_minor >= 0);",
+      );
+    }
+
+    final bool hasBaguetteSurchargeMinor = await _tableHasColumn(
+      tableName: tableName,
+      columnName: 'baguette_surcharge_minor',
+    );
+    if (!hasBaguetteSurchargeMinor) {
+      await customStatement(
+        "ALTER TABLE meal_adjustment_profiles ADD COLUMN baguette_surcharge_minor INTEGER NOT NULL DEFAULT 180 CHECK (baguette_surcharge_minor >= 0);",
+      );
+    }
+
+    final bool hasSandwichSauceOptionsJson = await _tableHasColumn(
+      tableName: tableName,
+      columnName: 'sandwich_sauce_options_json',
+    );
+    if (!hasSandwichSauceOptionsJson) {
+      await customStatement(
+        "ALTER TABLE meal_adjustment_profiles ADD COLUMN sandwich_sauce_options_json TEXT NOT NULL DEFAULT '[]';",
+      );
+    }
+  }
+
+  Future<void> _migrateToV28() async {
+    final List<QueryRow> legacyReferences = await customSelect('''
+      SELECT type, name, tbl_name, sql
+      FROM sqlite_master
+      WHERE sql LIKE '%transactions_legacy_v24%'
+      ''').get();
+    if (legacyReferences.isEmpty) {
+      return;
+    }
+
+    final bool legacyTableExists = await _tableExists(
+      'transactions_legacy_v24',
+    );
+    if (legacyTableExists) {
+      throw StateError(
+        'Legacy table transactions_legacy_v24 still exists. Manual recovery or a dev reset is required before migration can continue.',
+      );
+    }
+
+    final int legacyAlterTable = await _pragmaIntValue('legacy_alter_table');
+    await customStatement('PRAGMA foreign_keys = OFF;');
+    await customStatement('PRAGMA legacy_alter_table = OFF;');
+    try {
+      // SQLite rewrote child table references to transactions_legacy_v24 during
+      // v24's parent-table rename. Renaming the live transactions table
+      // through the legacy name forces SQLite to rewrite those references back
+      // to transactions without rebuilding every dependent table.
+      await customStatement(
+        'ALTER TABLE transactions RENAME TO transactions_legacy_v24;',
+      );
+      await customStatement(
+        'ALTER TABLE transactions_legacy_v24 RENAME TO transactions;',
+      );
+
+      final List<QueryRow> remainingLegacyReferences = await customSelect('''
+        SELECT type, name
+        FROM sqlite_master
+        WHERE sql LIKE '%transactions_legacy_v24%'
+        ''').get();
+      for (final QueryRow row in remainingLegacyReferences) {
+        final String type = row.read<String>('type');
+        final String name = row.read<String>('name');
+        if (type == 'trigger') {
+          await customStatement('DROP TRIGGER IF EXISTS "$name";');
+        } else if (type == 'view') {
+          await customStatement('DROP VIEW IF EXISTS "$name";');
+        }
+      }
+
+      final List<QueryRow> blockingLegacyReferences = await customSelect('''
+        SELECT type, name
+        FROM sqlite_master
+        WHERE sql LIKE '%transactions_legacy_v24%'
+        ''').get();
+      if (blockingLegacyReferences.isNotEmpty) {
+        throw StateError(
+          'Schema still contains transactions_legacy_v24 references after v28 repair.',
+        );
+      }
+    } finally {
+      await customStatement(
+        'PRAGMA legacy_alter_table = ${legacyAlterTable == 0 ? 'OFF' : 'ON'};',
+      );
+      await customStatement('PRAGMA foreign_keys = ON;');
+    }
+  }
+
+  Future<void> _migrateToV29() async {
+    final bool hasProductModifiersTable = await _tableExists(
+      'product_modifiers',
+    );
+    await customStatement('PRAGMA foreign_keys = OFF;');
+    try {
+      if (hasProductModifiersTable) {
+        await customStatement(
+          'DROP INDEX IF EXISTS idx_product_modifiers_prod;',
+        );
+        await customStatement(
+          'DROP INDEX IF EXISTS idx_product_modifiers_group;',
+        );
+        await customStatement(
+          'DROP INDEX IF EXISTS idx_product_modifiers_item_product;',
+        );
+        await customStatement(
+          'ALTER TABLE product_modifiers RENAME TO product_modifiers_legacy_v29;',
+        );
+      }
+      await customStatement('''
+        CREATE TABLE product_modifiers (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL,
+          group_id INTEGER NULL,
+          item_product_id INTEGER NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('included','extra','choice')),
+          extra_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (extra_price_minor >= 0),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          CHECK ((type = 'choice' AND group_id IS NOT NULL) OR (type IN ('included','extra') AND group_id IS NULL))
+        );
+      ''');
+      if (hasProductModifiersTable) {
+        await customStatement('''
+          INSERT INTO product_modifiers (
+            id,
+            product_id,
+            group_id,
+            item_product_id,
+            name,
+            type,
+            extra_price_minor,
+            is_active
+          )
+          SELECT
+            id,
+            product_id,
+            group_id,
+            item_product_id,
+            name,
+            type,
+            extra_price_minor,
+            is_active
+          FROM product_modifiers_legacy_v29;
+        ''');
+        await customStatement('DROP TABLE product_modifiers_legacy_v29;');
+      }
+    } finally {
+      await customStatement('PRAGMA foreign_keys = ON;');
+    }
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_product_modifiers_prod ON product_modifiers(product_id, is_active);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_product_modifiers_group ON product_modifiers(group_id, is_active);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_product_modifiers_item_product ON product_modifiers(item_product_id, type);',
+    );
+    await _createMigrationFkTrigger(
+      table: 'product_modifiers',
+      column: 'product_id',
+      referencedTable: 'products',
+    );
+    await _createMigrationFkTrigger(
+      table: 'product_modifiers',
+      column: 'group_id',
+      referencedTable: 'modifier_groups',
+      nullable: true,
+    );
+    await _createMigrationFkTrigger(
+      table: 'product_modifiers',
+      column: 'item_product_id',
+      referencedTable: 'products',
+      nullable: true,
+    );
+  }
+
+  Future<void> _migrateToV30() async {
+    final bool hasProductModifierPriceBehavior = await _tableHasColumn(
+      tableName: 'product_modifiers',
+      columnName: 'price_behavior',
+    );
+    if (!hasProductModifierPriceBehavior) {
+      await customStatement(
+        "ALTER TABLE product_modifiers ADD COLUMN price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid'));",
+      );
+    }
+
+    final bool hasProductModifierUiSection = await _tableHasColumn(
+      tableName: 'product_modifiers',
+      columnName: 'ui_section',
+    );
+    if (!hasProductModifierUiSection) {
+      await customStatement(
+        "ALTER TABLE product_modifiers ADD COLUMN ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins'));",
+      );
+    }
+
+    final bool hasOrderModifierPriceBehavior = await _tableHasColumn(
+      tableName: 'order_modifiers',
+      columnName: 'price_behavior',
+    );
+    if (!hasOrderModifierPriceBehavior) {
+      await customStatement(
+        "ALTER TABLE order_modifiers ADD COLUMN price_behavior TEXT NULL CHECK (price_behavior IS NULL OR price_behavior IN ('free','paid'));",
+      );
+    }
+
+    final bool hasOrderModifierUiSection = await _tableHasColumn(
+      tableName: 'order_modifiers',
+      columnName: 'ui_section',
+    );
+    if (!hasOrderModifierUiSection) {
+      await customStatement(
+        "ALTER TABLE order_modifiers ADD COLUMN ui_section TEXT NULL CHECK (ui_section IS NULL OR ui_section IN ('toppings','sauces','add_ins'));",
+      );
+    }
+
+    await _upgradeSeedBurgerModifiersToStructured();
+  }
+
+  Future<void> _migrateToV31() async {
+    final bool hasAuditTable = await _tableExists(
+      'sandwich_sauce_migration_audits',
+    );
+    if (!hasAuditTable) {
+      await customStatement('''
+        CREATE TABLE sandwich_sauce_migration_audits (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          profile_id INTEGER NULL,
+          legacy_value TEXT NOT NULL,
+          matched_product_id INTEGER NULL,
+          matched_product_name TEXT NULL,
+          status TEXT NOT NULL CHECK (status IN ('mapped','unmatched','ambiguous')),
+          detail TEXT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+      ''');
+    }
+
+    final List<QueryRow> profileRows = await customSelect('''
+      SELECT id, sandwich_sauce_options_json
+      FROM meal_adjustment_profiles
+      WHERE trim(sandwich_sauce_options_json) != ''
+      ''').get();
+    if (profileRows.isEmpty) {
+      return;
+    }
+
+    await customStatement('DELETE FROM sandwich_sauce_migration_audits;');
+
+    final List<QueryRow> sauceRows = await customSelect(
+      '''
+      SELECT p.id, p.name
+      FROM products p
+      INNER JOIN categories c ON c.id = p.category_id
+      WHERE lower(trim(c.name)) = lower(trim(?))
+        AND p.is_active = 1
+      ORDER BY p.sort_order ASC, p.id ASC
+      ''',
+      variables: <Variable<Object>>[Variable<String>(kSaucesCategoryName)],
+      readsFrom: <ResultSetImplementation<dynamic, dynamic>>{
+        products,
+        categories,
+      },
+    ).get();
+
+    final Map<String, List<_SauceMigrationProductCandidate>>
+    sauceCandidatesByLookupToken =
+        <String, List<_SauceMigrationProductCandidate>>{};
+    for (final QueryRow sauceRow in sauceRows) {
+      final _SauceMigrationProductCandidate candidate =
+          _SauceMigrationProductCandidate(
+            id: sauceRow.read<int>('id'),
+            name: sauceRow.read<String>('name'),
+          );
+      for (final String token in sandwichSauceLookupTokensForName(
+        candidate.name,
+      )) {
+        sauceCandidatesByLookupToken
+            .putIfAbsent(token, () => <_SauceMigrationProductCandidate>[])
+            .add(candidate);
+      }
+    }
+
+    for (final QueryRow profileRow in profileRows) {
+      final int profileId = profileRow.read<int>('id');
+      final String rawJson = profileRow.read<String>(
+        'sandwich_sauce_options_json',
+      );
+      final _SandwichSauceMigrationDecision decision =
+          _buildSandwichSauceMigrationDecision(
+            profileId: profileId,
+            rawJson: rawJson,
+            sauceCandidatesByLookupToken: sauceCandidatesByLookupToken,
+          );
+
+      await customUpdate(
+        '''
+        UPDATE meal_adjustment_profiles
+        SET sandwich_sauce_options_json = ?
+        WHERE id = ?
+        ''',
+        variables: <Variable<Object>>[
+          Variable<String>(jsonEncode(decision.matchedProductIds)),
+          Variable<int>(profileId),
+        ],
+        updates: <TableInfo<Table, Object?>>{mealAdjustmentProfiles},
+      );
+
+      for (final _SandwichSauceMigrationAuditRow auditRow
+          in decision.auditRows) {
+        await into(sandwichSauceMigrationAudits).insert(
+          SandwichSauceMigrationAuditsCompanion.insert(
+            profileId: Value<int?>(auditRow.profileId),
+            legacyValue: auditRow.legacyValue,
+            matchedProductId: Value<int?>(auditRow.matchedProductId),
+            matchedProductName: Value<String?>(auditRow.matchedProductName),
+            status: auditRow.status,
+            detail: Value<String?>(auditRow.detail),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _migrateToV32() async {
+    final bool hasPrinterSettingsTable = await _tableExists('printer_settings');
+    if (!hasPrinterSettingsTable) {
+      await customStatement('''
+        CREATE TABLE printer_settings (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          device_name TEXT NOT NULL,
+          device_address TEXT NOT NULL,
+          paper_width INTEGER NOT NULL DEFAULT 80 CHECK (paper_width IN (58,80)),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          connection_type TEXT NULL CHECK (connection_type IS NULL OR connection_type IN ('bluetooth','ethernet')),
+          ip_address TEXT NULL,
+          port INTEGER NULL CHECK (port IS NULL OR (port >= 1 AND port <= 65535))
+        );
+      ''');
+    }
+
+    final bool hasConnectionType = await _tableHasColumn(
+      tableName: 'printer_settings',
+      columnName: 'connection_type',
+    );
+    if (!hasConnectionType) {
+      await customStatement(
+        "ALTER TABLE printer_settings ADD COLUMN connection_type TEXT NULL CHECK (connection_type IS NULL OR connection_type IN ('bluetooth','ethernet'));",
+      );
+    }
+
+    final bool hasIpAddress = await _tableHasColumn(
+      tableName: 'printer_settings',
+      columnName: 'ip_address',
+    );
+    if (!hasIpAddress) {
+      await customStatement(
+        'ALTER TABLE printer_settings ADD COLUMN ip_address TEXT NULL;',
+      );
+    }
+
+    final bool hasPort = await _tableHasColumn(
+      tableName: 'printer_settings',
+      columnName: 'port',
+    );
+    if (!hasPort) {
+      await customStatement(
+        'ALTER TABLE printer_settings ADD COLUMN port INTEGER NULL CHECK (port IS NULL OR (port >= 1 AND port <= 65535));',
+      );
+    }
+
+    final List<QueryRow> printerRows = await customSelect('''
+      SELECT id, device_name, device_address, paper_width, is_active
+      FROM printer_settings
+      ORDER BY id ASC
+    ''').get();
+    for (final QueryRow row in printerRows) {
+      final PrinterSettingsModel parsed = PrinterSettingsModel.fromStorage(
+        id: row.read<int>('id'),
+        deviceName: row.read<String>('device_name'),
+        deviceAddress: row.read<String>('device_address'),
+        paperWidth: row.read<int>('paper_width'),
+        isActive: row.read<int>('is_active') == 1,
+      );
+      await customStatement(
+        '''
+        UPDATE printer_settings
+        SET
+          device_name = ?,
+          -- device_address is rewritten to the normalized runtime address:
+          -- bluetooth => MAC/address, ethernet => host
+          device_address = ?,
+          connection_type = ?,
+          ip_address = ?,
+          port = ?
+        WHERE id = ?
+        ''',
+        <Object?>[
+          PrinterSettingsModel.normalizeEditableDeviceName(parsed.deviceName),
+          parsed.deviceAddress.trim(),
+          parsed.connectionType.name,
+          parsed.ipAddress?.trim(),
+          parsed.port,
+          parsed.id,
+        ],
+      );
+    }
+  }
+
+  Future<void> _upgradeSeedBurgerModifiersToStructured() async {
+    final List<QueryRow> burgerRows = await customSelect('''
+      SELECT id
+      FROM products
+      WHERE lower(trim(name)) = 'burger'
+      ORDER BY id ASC
+    ''').get();
+
+    const Set<String> legacyBurgerModifierNames = <String>{
+      'lettuce',
+      'tomato',
+      'onion',
+      'cheese',
+      'bacon',
+      'extra patty',
+    };
+
+    for (final QueryRow burgerRow in burgerRows) {
+      final int productId = burgerRow.read<int>('id');
+      final List<QueryRow> modifierRows = await customSelect(
+        '''
+        SELECT id, name, type
+        FROM product_modifiers
+        WHERE product_id = ?
+          AND group_id IS NULL
+          AND item_product_id IS NULL
+        ORDER BY id ASC
+        ''',
+        variables: <Variable<Object>>[Variable<int>(productId)],
+      ).get();
+
+      final Set<String> names = modifierRows
+          .map((QueryRow row) => row.read<String>('name').trim().toLowerCase())
+          .toSet();
+      final bool isLegacySeedBurger =
+          modifierRows.length == legacyBurgerModifierNames.length &&
+          names.containsAll(legacyBurgerModifierNames);
+      if (!isLegacySeedBurger) {
+        continue;
+      }
+
+      await customUpdate(
+        'DELETE FROM product_modifiers WHERE product_id = ?',
+        variables: <Variable<Object>>[Variable<int>(productId)],
+        updates: <ResultSetImplementation<dynamic, dynamic>>{productModifiers},
+      );
+
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Fried onion',
+        priceBehavior: 'free',
+        uiSection: 'toppings',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Salad',
+        priceBehavior: 'free',
+        uiSection: 'toppings',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Ketchup',
+        priceBehavior: 'free',
+        uiSection: 'sauces',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Brown sauce',
+        priceBehavior: 'free',
+        uiSection: 'sauces',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Burger sauce',
+        priceBehavior: 'free',
+        uiSection: 'sauces',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Mayonnaise',
+        priceBehavior: 'free',
+        uiSection: 'sauces',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Chips',
+        extraPriceMinor: 110,
+        priceBehavior: 'paid',
+        uiSection: 'add_ins',
+      );
+      await _insertStructuredBurgerModifier(
+        productId: productId,
+        name: 'Beans',
+        extraPriceMinor: 80,
+        priceBehavior: 'paid',
+        uiSection: 'add_ins',
+      );
+    }
+  }
+
+  Future<void> _insertStructuredBurgerModifier({
+    required int productId,
+    required String name,
+    required String priceBehavior,
+    required String uiSection,
+    int extraPriceMinor = 0,
+  }) async {
+    await into(productModifiers).insert(
+      ProductModifiersCompanion.insert(
+        productId: productId,
+        name: name,
+        type: 'extra',
+        extraPriceMinor: Value<int>(extraPriceMinor),
+        priceBehavior: Value<String?>(priceBehavior),
+        uiSection: Value<String?>(uiSection),
+        isActive: const Value<bool>(true),
+      ),
+    );
+  }
+
   Future<void> _createSyncRootSnapshotTable() async {
     await customStatement('''
       CREATE TABLE IF NOT EXISTS sync_queue_root_graph_snapshots (
@@ -3402,6 +4142,124 @@ class AppDatabase extends _$AppDatabase {
     return row != null;
   }
 
+  Future<int> _pragmaIntValue(String pragmaName) async {
+    final QueryRow row = await customSelect('PRAGMA $pragmaName;').getSingle();
+    return (row.data.values.first as num).toInt();
+  }
+
+  _SandwichSauceMigrationDecision _buildSandwichSauceMigrationDecision({
+    required int profileId,
+    required String rawJson,
+    required Map<String, List<_SauceMigrationProductCandidate>>
+    sauceCandidatesByLookupToken,
+  }) {
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(rawJson);
+    } on Object {
+      return _SandwichSauceMigrationDecision(
+        matchedProductIds: const <int>[],
+        auditRows: <_SandwichSauceMigrationAuditRow>[
+          _SandwichSauceMigrationAuditRow(
+            profileId: profileId,
+            legacyValue: rawJson,
+            status: 'unmatched',
+            detail: 'Stored sandwich sauce config was not valid JSON.',
+          ),
+        ],
+      );
+    }
+    if (decoded is! List<dynamic>) {
+      return _SandwichSauceMigrationDecision(
+        matchedProductIds: const <int>[],
+        auditRows: <_SandwichSauceMigrationAuditRow>[
+          _SandwichSauceMigrationAuditRow(
+            profileId: profileId,
+            legacyValue: rawJson,
+            status: 'unmatched',
+            detail: 'Stored sandwich sauce config was not a JSON array.',
+          ),
+        ],
+      );
+    }
+    if (decoded.every((dynamic entry) => entry is int)) {
+      return _SandwichSauceMigrationDecision(
+        matchedProductIds: normalizeSandwichSauceProductIds(
+          decoded.whereType<int>(),
+        ),
+        auditRows: const <_SandwichSauceMigrationAuditRow>[],
+      );
+    }
+
+    final List<_SandwichSauceMigrationAuditRow> auditRows =
+        <_SandwichSauceMigrationAuditRow>[];
+    final List<int> matchedProductIds = <int>[];
+    for (final String legacyValue in decoded.whereType<String>()) {
+      final String? canonicalLookupKey =
+          canonicalLegacySandwichSauceLookupKey(legacyValue) ??
+          normalizeSandwichSauceLookupValue(legacyValue);
+      if (canonicalLookupKey == null || canonicalLookupKey.isEmpty) {
+        auditRows.add(
+          _SandwichSauceMigrationAuditRow(
+            profileId: profileId,
+            legacyValue: legacyValue,
+            status: 'unmatched',
+            detail: 'Legacy value could not be normalized.',
+          ),
+        );
+        continue;
+      }
+      final List<_SauceMigrationProductCandidate> candidates =
+          sauceCandidatesByLookupToken[canonicalLookupKey] ??
+          const <_SauceMigrationProductCandidate>[];
+      if (candidates.isEmpty) {
+        auditRows.add(
+          _SandwichSauceMigrationAuditRow(
+            profileId: profileId,
+            legacyValue: legacyValue,
+            status: 'unmatched',
+            detail:
+                'No active product in the Sauces category matched this legacy value.',
+          ),
+        );
+        continue;
+      }
+      final List<_SauceMigrationProductCandidate> uniqueCandidates =
+          <_SauceMigrationProductCandidate>{
+            for (final _SauceMigrationProductCandidate candidate in candidates)
+              candidate,
+          }.toList(growable: false);
+      if (uniqueCandidates.length > 1) {
+        auditRows.add(
+          _SandwichSauceMigrationAuditRow(
+            profileId: profileId,
+            legacyValue: legacyValue,
+            status: 'ambiguous',
+            detail:
+                'Matched multiple Sauces-category products: ${uniqueCandidates.map((candidate) => candidate.name).join(', ')}',
+          ),
+        );
+        continue;
+      }
+      final _SauceMigrationProductCandidate candidate = uniqueCandidates.single;
+      matchedProductIds.add(candidate.id);
+      auditRows.add(
+        _SandwichSauceMigrationAuditRow(
+          profileId: profileId,
+          legacyValue: legacyValue,
+          matchedProductId: candidate.id,
+          matchedProductName: candidate.name,
+          status: 'mapped',
+        ),
+      );
+    }
+
+    return _SandwichSauceMigrationDecision(
+      matchedProductIds: normalizeSandwichSauceProductIds(matchedProductIds),
+      auditRows: auditRows,
+    );
+  }
+
   Future<void> _runMigrationStep({
     required String step,
     required int fromVersion,
@@ -3463,4 +4321,47 @@ QueryExecutor _openConnection() {
 
     return NativeDatabase.createInBackground(databaseFile);
   });
+}
+
+class _SauceMigrationProductCandidate {
+  const _SauceMigrationProductCandidate({required this.id, required this.name});
+
+  final int id;
+  final String name;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _SauceMigrationProductCandidate && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+class _SandwichSauceMigrationAuditRow {
+  const _SandwichSauceMigrationAuditRow({
+    required this.profileId,
+    required this.legacyValue,
+    required this.status,
+    this.matchedProductId,
+    this.matchedProductName,
+    this.detail,
+  });
+
+  final int? profileId;
+  final String legacyValue;
+  final int? matchedProductId;
+  final String? matchedProductName;
+  final String status;
+  final String? detail;
+}
+
+class _SandwichSauceMigrationDecision {
+  const _SandwichSauceMigrationDecision({
+    required this.matchedProductIds,
+    required this.auditRows,
+  });
+
+  final List<int> matchedProductIds;
+  final List<_SandwichSauceMigrationAuditRow> auditRows;
 }

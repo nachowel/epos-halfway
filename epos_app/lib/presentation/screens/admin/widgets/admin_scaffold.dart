@@ -7,6 +7,7 @@ import '../../../../core/constants/app_sizes.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/shift_provider.dart';
+import '../../../widgets/logout_confirmation.dart';
 import '../../../widgets/section_app_bar.dart';
 
 const String _cashMovementsLabel = 'Cash Movements';
@@ -99,6 +100,11 @@ class AdminScaffold extends ConsumerWidget {
       route: '/admin/sync',
       icon: Icons.sync_rounded,
     ),
+    const _AdminDestination(
+      label: 'Users',
+      route: '/admin/users',
+      icon: Icons.people_rounded,
+    ),
     _AdminDestination(
       label: AppStrings.system,
       route: '/admin/system',
@@ -119,10 +125,7 @@ class AdminScaffold extends ConsumerWidget {
         currentRoute: currentRoute,
         currentUser: authState.currentUser,
         currentShift: shiftState.currentShift,
-        onLogout: () {
-          ref.read(authNotifierProvider.notifier).logout();
-          context.go('/login');
-        },
+        onLogout: () => handleLogoutRequest(context, ref),
       ),
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {

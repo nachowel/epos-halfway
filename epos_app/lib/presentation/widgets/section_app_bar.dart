@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,6 +19,7 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.currentShift,
     required this.onLogout,
     this.compactVisual = false,
+    this.onSelectDestination,
     super.key,
   });
 
@@ -26,10 +29,11 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Shift? currentShift;
   final VoidCallback onLogout;
   final bool compactVisual;
+  final FutureOr<void> Function(String route)? onSelectDestination;
 
   @override
   Size get preferredSize =>
-      Size.fromHeight(compactVisual ? 44 : AppSizes.topBarHeight);
+      Size.fromHeight((compactVisual ? 60 : AppSizes.topBarHeight) + 1);
 
   @visibleForTesting
   static String debugNavigationStage({
@@ -51,7 +55,13 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final bool isAdmin = currentUser?.role == UserRole.admin;
-    final List<_NavDestination> destinations = _buildDestinations(isAdmin);
+    final bool isCashier = currentUser?.role == UserRole.cashier;
+    final VoidCallback? onShiftTap = isCashier
+        ? null
+        : () => context.go('/shifts');
+    final List<_NavDestination> destinations = _buildDestinations(
+      isAdmin: isAdmin,
+    );
     final ({Color color, String label}) shiftIndicator = _resolveShiftIndicator(
       currentShift,
     );
@@ -63,16 +73,24 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
       logoutLabel: AppStrings.navLogout,
     );
     return AppBar(
-      toolbarHeight: compactVisual ? 44 : AppSizes.topBarHeight,
-      titleSpacing: layoutConfig.useCompactTitle ? 10 : AppSizes.spacingMd,
+      toolbarHeight: compactVisual ? 60 : AppSizes.topBarHeight,
+      backgroundColor: AppColors.surface,
+      titleSpacing: layoutConfig.useCompactTitle ? 14 : AppSizes.spacingMd,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
       elevation: 0,
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: AppColors.border.withValues(alpha: 0.85),
+        ),
+      ),
       title: layoutConfig.useCompactTitle
           ? _CompactHeaderTitle(
               key: const ValueKey<String>('section_app_bar_compact_title'),
               shiftIndicator: shiftIndicator,
-              onOpenShifts: () => context.go('/shifts'),
+              onOpenShifts: onShiftTap,
             )
           : Row(
               key: const ValueKey<String>('section_app_bar_standard_title'),
@@ -110,7 +128,7 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
                   _ShiftIndicator(
                     shiftIndicator: shiftIndicator,
                     compactVisual: false,
-                    onTap: () => context.go('/shifts'),
+                    onTap: onShiftTap,
                   ),
                 ],
               ],
@@ -121,6 +139,8 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
                 destinations: destinations,
                 onLogout: onLogout,
                 compactVisual: compactVisual,
+                onSelectDestination: (_NavDestination destination) =>
+                    _handleDestinationTap(context, destination.route),
               ),
               const SizedBox(width: AppSizes.spacingSm),
             ]
@@ -134,19 +154,20 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
                 destinations: destinations,
                 onLogout: onLogout,
                 compactVisual: layoutConfig.useCompactInlineNav,
+                onSelectDestination: (_NavDestination destination) =>
+                    _handleDestinationTap(context, destination.route),
               ),
             ],
     );
   }
 
-  List<_NavDestination> _buildDestinations(bool isAdmin) {
+  List<_NavDestination> _buildDestinations({required bool isAdmin}) {
     return <_NavDestination>[
-      if (!isAdmin)
-        _NavDestination(
-          label: AppStrings.dashboard,
-          route: '/dashboard',
-          isActive: currentRoute == '/dashboard',
-        ),
+      _NavDestination(
+        label: AppStrings.categories,
+        route: '/pos/categories',
+        isActive: currentRoute == '/pos/categories',
+      ),
       _NavDestination(
         label: AppStrings.navPos,
         route: '/pos',
@@ -162,11 +183,12 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
         route: '/reports',
         isActive: currentRoute == '/reports',
       ),
-      _NavDestination(
-        label: AppStrings.navShifts,
-        route: '/shifts',
-        isActive: currentRoute == '/shifts',
-      ),
+      if (isAdmin)
+        _NavDestination(
+          label: AppStrings.navShifts,
+          route: '/shifts',
+          isActive: currentRoute == '/shifts',
+        ),
       if (isAdmin)
         _NavDestination(
           label: AppStrings.navAdmin,
@@ -196,6 +218,14 @@ class SectionAppBar extends StatelessWidget implements PreferredSizeWidget {
               '${AppStrings.openShiftLabel(shift.id)} (${AppStrings.statusLocked})',
         );
     }
+  }
+
+  FutureOr<void> _handleDestinationTap(BuildContext context, String route) {
+    final FutureOr<void> Function(String route)? handler = onSelectDestination;
+    if (handler != null) {
+      return handler(route);
+    }
+    context.go(route);
   }
 }
 
@@ -274,7 +304,7 @@ class _HeaderLayoutConfig {
       ),
     );
 
-    return 42 + 8 + labelWidth + 32;
+    return 56 + 10 + labelWidth + 34;
   }
 
   static double _estimateStandardTitleWidth(String shiftLabel) {
@@ -300,7 +330,7 @@ class _HeaderLayoutConfig {
       fontWeight: FontWeight.w600,
       letterSpacing: compactNav ? -0.1 : -0.2,
     );
-    final double navHorizontalPadding = compactNav ? 16 : 32;
+    final double navHorizontalPadding = compactNav ? 20 : 32;
     final double navGap = compactNav ? 4 : 8;
     double totalWidth = compactNav ? 8 : 16;
 
@@ -315,10 +345,10 @@ class _HeaderLayoutConfig {
       letterSpacing: compactNav ? -0.1 : -0.2,
     );
 
-    totalWidth += compactNav ? 6 : 12;
+    totalWidth += compactNav ? 8 : 12;
     totalWidth += _measureTextWidth(logoutLabel, logoutStyle);
-    totalWidth += compactNav ? 16 : 44;
-    totalWidth += compactNav ? 12 : 20;
+    totalWidth += compactNav ? 28 : 44;
+    totalWidth += compactNav ? 16 : 20;
 
     return totalWidth;
   }
@@ -354,22 +384,29 @@ class _CompactHeaderTitle extends StatelessWidget {
   });
 
   final ({Color color, String label}) shiftIndicator;
-  final VoidCallback onOpenShifts;
+  final VoidCallback? onOpenShifts;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        const Text(
-          'EPOS',
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-            letterSpacing: -0.2,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Text(
+            'EPOS',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.primary,
+              letterSpacing: -0.2,
+            ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Flexible(
           child: _ShiftIndicator(
             shiftIndicator: shiftIndicator,
@@ -388,16 +425,19 @@ class _InlineHeaderActions extends StatelessWidget {
     required this.destinations,
     required this.onLogout,
     required this.compactVisual,
+    required this.onSelectDestination,
   });
 
   final List<_NavDestination> destinations;
   final VoidCallback onLogout;
   final bool compactVisual;
+  final FutureOr<void> Function(_NavDestination destination)
+  onSelectDestination;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(right: compactVisual ? 8 : AppSizes.spacingMd),
+      padding: EdgeInsets.only(right: compactVisual ? 12 : AppSizes.spacingMd),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
@@ -408,22 +448,28 @@ class _InlineHeaderActions extends StatelessWidget {
               ),
               label: destination.label,
               isActive: destination.isActive,
-              onTap: () => context.go(destination.route),
+              onTap: () => onSelectDestination(destination),
               compactVisual: compactVisual,
             ),
           SizedBox(width: compactVisual ? 2 : AppSizes.spacingSm),
           compactVisual
-              ? TextButton(
+              ? OutlinedButton(
                   key: const ValueKey<String>('section_app_bar_inline_logout'),
                   onPressed: onLogout,
-                  style: TextButton.styleFrom(
+                  style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.textSecondary,
+                    side: BorderSide(
+                      color: AppColors.border.withValues(alpha: 0.85),
+                    ),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     textStyle: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                       letterSpacing: -0.1,
                     ),
@@ -453,7 +499,7 @@ class _ShiftIndicator extends StatelessWidget {
 
   final ({Color color, String label}) shiftIndicator;
   final bool compactVisual;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -464,8 +510,8 @@ class _ShiftIndicator extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: EdgeInsets.symmetric(
-          horizontal: compactVisual ? 8 : 12,
-          vertical: compactVisual ? 4 : 6,
+          horizontal: compactVisual ? 10 : 12,
+          vertical: compactVisual ? 7 : 6,
         ),
         decoration: BoxDecoration(
           color: shiftIndicator.color.withValues(
@@ -498,7 +544,7 @@ class _ShiftIndicator extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: compactVisual ? 11.5 : AppSizes.fontSm,
+                  fontSize: compactVisual ? 12 : AppSizes.fontSm,
                   color: shiftIndicator.color,
                   fontWeight: FontWeight.w600,
                   letterSpacing: -0.1,
@@ -517,11 +563,14 @@ class _CollapsedNavigationButton extends StatelessWidget {
     required this.destinations,
     required this.onLogout,
     required this.compactVisual,
+    required this.onSelectDestination,
   });
 
   final List<_NavDestination> destinations;
   final VoidCallback onLogout;
   final bool compactVisual;
+  final FutureOr<void> Function(_NavDestination destination)
+  onSelectDestination;
 
   Future<void> _openNavigationMenu(BuildContext context) async {
     await showGeneralDialog<void>(
@@ -550,7 +599,7 @@ class _CollapsedNavigationButton extends StatelessWidget {
                     onSelectDestination: (_NavDestination destination) {
                       Navigator.of(dialogContext).pop();
                       if (!destination.isActive) {
-                        context.go(destination.route);
+                        onSelectDestination(destination);
                       }
                     },
                     onLogout: () {
@@ -768,14 +817,14 @@ class _NavButton extends StatelessWidget {
               ? AppColors.primary.withValues(alpha: compactVisual ? 0.08 : 0.10)
               : Colors.transparent,
           padding: EdgeInsets.symmetric(
-            horizontal: compactVisual ? 8 : 16,
-            vertical: compactVisual ? 5 : 12,
+            horizontal: compactVisual ? 10 : 16,
+            vertical: compactVisual ? 8 : 12,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(compactVisual ? 8 : 16),
+            borderRadius: BorderRadius.circular(compactVisual ? 12 : 16),
           ),
           textStyle: TextStyle(
-            fontSize: compactVisual ? 11.5 : AppSizes.fontSm,
+            fontSize: compactVisual ? 12 : AppSizes.fontSm,
             fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
             letterSpacing: compactVisual ? -0.1 : -0.2,
           ),

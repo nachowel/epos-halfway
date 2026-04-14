@@ -22,6 +22,7 @@ import '../models/shift.dart';
 import '../models/shift_report.dart';
 import '../models/sync_runtime_state.dart';
 import '../models/sync_failure_guidance.dart';
+import '../models/sync_graph_requeue_result.dart';
 import '../models/sync_monitor_snapshot.dart';
 import '../models/sync_operations_summary.dart';
 import '../models/sync_queue_item.dart';
@@ -77,9 +78,18 @@ class ProductDeletionAnalysis {
       mealPricingRuleReferenceCount > 0;
 }
 
+class BulkModifierCreateResult {
+  const BulkModifierCreateResult({
+    required this.createdCount,
+    required this.skippedCount,
+  });
+
+  final int createdCount;
+  final int skippedCount;
+}
+
 class AdminService {
   static const String archivedCategoryName = 'Archived Products';
-  static const String setBreakfastCategoryName = 'Set Breakfast';
   static const int defaultSyncMaxRetryAttempts = 5;
   static const Duration defaultProcessingStuckThreshold = Duration(minutes: 2);
 
@@ -165,6 +175,7 @@ class AdminService {
     required User user,
     required String name,
     required int sortOrder,
+    String? imageUrl,
     bool isActive = true,
   }) async {
     _ensureAdmin(user);
@@ -174,6 +185,7 @@ class AdminService {
 
     return _categoryRepository.insert(
       name: name.trim(),
+      imageUrl: _normalizeOptionalImageUrl(imageUrl),
       sortOrder: sortOrder,
       isActive: isActive,
     );
@@ -185,6 +197,7 @@ class AdminService {
     required String name,
     required int sortOrder,
     required bool isActive,
+    String? imageUrl,
   }) async {
     _ensureAdmin(user);
     _validateRequiredName(name, fieldName: 'Category name');
@@ -194,12 +207,21 @@ class AdminService {
     final bool updated = await _categoryRepository.updateCategory(
       id: id,
       name: name.trim(),
+      imageUrl: _normalizeOptionalImageUrl(imageUrl),
       sortOrder: sortOrder,
       isActive: isActive,
     );
     if (!updated) {
       throw NotFoundException('Category not found: $id');
     }
+  }
+
+  String? _normalizeOptionalImageUrl(String? value) {
+    final String? trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
   }
 
   Future<bool> categoryHasActiveProducts({
@@ -251,6 +273,42 @@ class AdminService {
     }
   }
 
+  Future<void> reorderCategories({
+    required User user,
+    required List<int> orderedIds,
+  }) async {
+    _ensureAdmin(user);
+    final List<Category> categories = await _categoryRepository.getAll(
+      activeOnly: false,
+    );
+    if (categories.length != orderedIds.length) {
+      throw ValidationException(
+        'Category reorder payload must include every category exactly once.',
+      );
+    }
+
+    final Set<int> expectedIds = categories
+        .map((Category category) => category.id)
+        .toSet();
+    final Set<int> actualIds = orderedIds.toSet();
+    if (expectedIds.length != actualIds.length ||
+        !expectedIds.containsAll(actualIds) ||
+        !actualIds.containsAll(expectedIds)) {
+      throw ValidationException(
+        'Category reorder payload must include every category exactly once.',
+      );
+    }
+
+    await _categoryRepository.reorder(orderedIds);
+    await _auditLogService.logActionSafely(
+      actorUserId: user.id,
+      action: 'category_reordered',
+      entityType: 'category',
+      entityId: 'all',
+      metadata: <String, Object?>{'ordered_ids': orderedIds},
+    );
+  }
+
   Future<List<Product>> getProducts({int? categoryId}) {
     if (categoryId == null) {
       return _productRepository.getAll(activeOnly: false);
@@ -258,11 +316,56 @@ class AdminService {
     return _productRepository.getByCategory(categoryId, activeOnly: false);
   }
 
+  Future<void> reorderProductsInCategory({
+    required User user,
+    required int categoryId,
+    required List<int> orderedIds,
+  }) async {
+    _ensureAdmin(user);
+    await _requireCategory(categoryId);
+
+    final List<Product> categoryProducts = await _productRepository
+        .getByCategory(categoryId, activeOnly: false);
+    if (categoryProducts.length != orderedIds.length) {
+      throw ValidationException(
+        'Product reorder payload must include every product in the selected category exactly once.',
+      );
+    }
+
+    final Set<int> expectedIds = categoryProducts
+        .map((Product product) => product.id)
+        .toSet();
+    final Set<int> actualIds = orderedIds.toSet();
+    if (expectedIds.length != actualIds.length ||
+        !expectedIds.containsAll(actualIds) ||
+        !actualIds.containsAll(expectedIds)) {
+      throw ValidationException(
+        'Product reorder payload must include every product in the selected category exactly once.',
+      );
+    }
+
+    await _productRepository.reorderWithinCategory(
+      categoryId: categoryId,
+      orderedIds: orderedIds,
+    );
+    await _auditLogService.logActionSafely(
+      actorUserId: user.id,
+      action: 'product_reordered',
+      entityType: 'product',
+      entityId: 'category:$categoryId',
+      metadata: <String, Object?>{
+        'category_id': categoryId,
+        'ordered_ids': orderedIds,
+      },
+    );
+  }
+
   Future<int> createProduct({
     required User user,
     required int categoryId,
     required String name,
     required int priceMinor,
+    String? imageUrl,
     required bool hasModifiers,
     required int sortOrder,
     bool isActive = true,
@@ -278,6 +381,7 @@ class AdminService {
       categoryId: categoryId,
       name: name.trim(),
       priceMinor: priceMinor,
+      imageUrl: _normalizeOptionalImageUrl(imageUrl),
       hasModifiers: hasModifiers,
       sortOrder: sortOrder,
       isActive: isActive,
@@ -292,6 +396,7 @@ class AdminService {
         'category_id': categoryId,
         'name': name.trim(),
         'price_minor': priceMinor,
+        'image_url': _normalizeOptionalImageUrl(imageUrl),
         'has_modifiers': hasModifiers,
         'is_active': isActive,
         'is_visible_on_pos': isVisibleOnPos,
@@ -302,6 +407,7 @@ class AdminService {
 
   Future<int> createBreakfastSetRoot({
     required User user,
+    required int categoryId,
     required String name,
     required int priceMinor,
     bool isActive = true,
@@ -309,26 +415,26 @@ class AdminService {
     int? sortOrder,
   }) async {
     _ensureAdmin(user);
-    _validateRequiredName(name, fieldName: 'Set name');
+    _validateRequiredName(name, fieldName: 'Product name');
     _validateNonNegative(priceMinor, fieldName: 'price_minor');
+    await _requireCategory(categoryId);
 
-    final Category? breakfastCategory = await _categoryRepository
-        .findByNameIgnoreCase(setBreakfastCategoryName);
-    if (breakfastCategory == null) {
-      throw ValidationException(
-        'Set Breakfast category is required before creating a breakfast set.',
-      );
+    final Category? targetCategory = await _categoryRepository.getById(
+      categoryId,
+    );
+    if (targetCategory == null) {
+      throw ValidationException('Category selection is required.');
     }
 
     final List<Product> categoryProducts = await _productRepository
-        .getByCategory(breakfastCategory.id, activeOnly: false);
+        .getByCategory(targetCategory.id, activeOnly: false);
     final String normalizedName = name.trim().toLowerCase();
     final bool duplicateExists = categoryProducts.any(
       (Product product) => product.name.trim().toLowerCase() == normalizedName,
     );
     if (duplicateExists) {
       throw ValidationException(
-        'A breakfast set with this name already exists in Set Breakfast.',
+        'A breakfast / set-style product with this name already exists in ${targetCategory.name}.',
       );
     }
 
@@ -340,7 +446,7 @@ class AdminService {
 
     final int productId = await createProduct(
       user: user,
-      categoryId: breakfastCategory.id,
+      categoryId: targetCategory.id,
       name: name.trim(),
       priceMinor: priceMinor,
       hasModifiers: false,
@@ -360,6 +466,7 @@ class AdminService {
     required int categoryId,
     required String name,
     required int priceMinor,
+    String? imageUrl,
     required bool hasModifiers,
     required int sortOrder,
     required bool isActive,
@@ -381,6 +488,7 @@ class AdminService {
       categoryId: categoryId,
       name: name.trim(),
       priceMinor: priceMinor,
+      imageUrl: _normalizeOptionalImageUrl(imageUrl),
       hasModifiers: hasModifiers,
       sortOrder: sortOrder,
       isActive: isActive,
@@ -402,6 +510,8 @@ class AdminService {
         'new_name': after.name,
         'old_price_minor': before.priceMinor,
         'new_price_minor': after.priceMinor,
+        'old_image_url': before.imageUrl,
+        'new_image_url': after.imageUrl,
         'old_has_modifiers': before.hasModifiers,
         'new_has_modifiers': after.hasModifiers,
       },
@@ -560,9 +670,15 @@ class AdminService {
     required ModifierType type,
     required int extraPriceMinor,
     bool isActive = true,
+    int? itemProductId,
+    ModifierPriceBehavior? priceBehavior,
+    ModifierUiSection? uiSection,
   }) async {
     _ensureAdmin(user);
     await _requireProduct(productId);
+    if (itemProductId != null) {
+      await _requireProduct(itemProductId);
+    }
     _validateRequiredName(name, fieldName: 'Modifier name');
     _validateNonNegative(extraPriceMinor, fieldName: 'extra_price_minor');
 
@@ -572,6 +688,9 @@ class AdminService {
       type: type,
       extraPriceMinor: type == ModifierType.extra ? extraPriceMinor : 0,
       isActive: isActive,
+      itemProductId: itemProductId,
+      priceBehavior: priceBehavior,
+      uiSection: uiSection,
     );
   }
 
@@ -583,9 +702,15 @@ class AdminService {
     required ModifierType type,
     required int extraPriceMinor,
     required bool isActive,
+    int? itemProductId,
+    ModifierPriceBehavior? priceBehavior,
+    ModifierUiSection? uiSection,
   }) async {
     _ensureAdmin(user);
     await _requireProduct(productId);
+    if (itemProductId != null) {
+      await _requireProduct(itemProductId);
+    }
     _validateRequiredName(name, fieldName: 'Modifier name');
     _validateNonNegative(extraPriceMinor, fieldName: 'extra_price_minor');
 
@@ -596,10 +721,44 @@ class AdminService {
       type: type,
       extraPriceMinor: type == ModifierType.extra ? extraPriceMinor : 0,
       isActive: isActive,
+      itemProductId: itemProductId,
+      priceBehavior: priceBehavior,
+      uiSection: uiSection,
     );
     if (!updated) {
       throw NotFoundException('Modifier not found: $id');
     }
+  }
+
+  Future<BulkModifierCreateResult> bulkCreateModifiersFromCategory({
+    required User user,
+    required int productId,
+    required int sourceCategoryId,
+    required ModifierType type,
+    required bool isActive,
+    ModifierPriceBehavior? priceBehavior,
+    ModifierUiSection? uiSection,
+  }) async {
+    _ensureAdmin(user);
+    await _requireProduct(productId);
+    await _requireCategory(sourceCategoryId);
+
+    final List<Product> categoryProducts = await _productRepository
+        .getByCategory(sourceCategoryId, activeOnly: true);
+    final BulkModifierInsertResult result = await _modifierRepository
+        .insertBulkLinkedProducts(
+          productId: productId,
+          linkedProducts: categoryProducts,
+          type: type,
+          isActive: isActive,
+          priceBehavior: priceBehavior,
+          uiSection: uiSection,
+        );
+
+    return BulkModifierCreateResult(
+      createdCount: result.createdCount,
+      skippedCount: result.skippedCount,
+    );
   }
 
   Future<void> toggleModifierActive({
@@ -610,6 +769,14 @@ class AdminService {
     _ensureAdmin(user);
     final bool updated = await _modifierRepository.toggleActive(id, isActive);
     if (!updated) {
+      throw NotFoundException('Modifier not found: $id');
+    }
+  }
+
+  Future<void> deleteModifier({required User user, required int id}) async {
+    _ensureAdmin(user);
+    final bool deleted = await _modifierRepository.deleteModifier(id);
+    if (!deleted) {
       throw NotFoundException('Modifier not found: $id');
     }
   }
@@ -696,35 +863,77 @@ class AdminService {
     return _printerService.getBondedDevices();
   }
 
+  Future<bool> isBluetoothAvailable() => _printerService.isBluetoothAvailable();
+
   Future<void> savePrinterSettings({
     required User user,
-    required String deviceName,
-    required String deviceAddress,
+    required PrinterConnectionType connectionType,
+    String? deviceName,
+    String? deviceAddress,
+    String? ipAddress,
+    int? port,
     required int paperWidth,
   }) async {
     _ensureAdmin(user);
-    _validateRequiredName(deviceName, fieldName: 'Printer name');
-    _validateRequiredName(deviceAddress, fieldName: 'Printer address');
+    final String resolvedDeviceName = _resolvePrinterName(
+      deviceName,
+      connectionType: connectionType,
+    );
+    final String? resolvedDeviceAddress = _resolvePrinterAddress(
+      deviceAddress,
+      connectionType: connectionType,
+    );
+    final String? resolvedIpAddress = _resolvePrinterIpAddress(
+      ipAddress,
+      connectionType: connectionType,
+    );
+    final int? resolvedPort = _resolvePrinterPort(
+      port,
+      connectionType: connectionType,
+    );
     await _printerService.savePrinterSettings(
-      deviceName: deviceName.trim(),
-      deviceAddress: deviceAddress.trim(),
+      deviceName: resolvedDeviceName,
+      deviceAddress: resolvedDeviceAddress ?? resolvedIpAddress!,
       paperWidth: paperWidth,
+      connectionType: connectionType,
+      ipAddress: resolvedIpAddress,
+      port: resolvedPort,
     );
   }
 
   Future<void> printTestPage({
     required User user,
-    required String deviceName,
-    required String deviceAddress,
+    required PrinterConnectionType connectionType,
+    String? deviceName,
+    String? deviceAddress,
+    String? ipAddress,
+    int? port,
     required int paperWidth,
   }) async {
     _ensureAdmin(user);
-    _validateRequiredName(deviceName, fieldName: 'Printer name');
-    _validateRequiredName(deviceAddress, fieldName: 'Printer address');
+    final String resolvedDeviceName = _resolvePrinterName(
+      deviceName,
+      connectionType: connectionType,
+    );
+    final String? resolvedDeviceAddress = _resolvePrinterAddress(
+      deviceAddress,
+      connectionType: connectionType,
+    );
+    final String? resolvedIpAddress = _resolvePrinterIpAddress(
+      ipAddress,
+      connectionType: connectionType,
+    );
+    final int? resolvedPort = _resolvePrinterPort(
+      port,
+      connectionType: connectionType,
+    );
     await _printerService.printTestPage(
-      deviceName: deviceName.trim(),
-      deviceAddress: deviceAddress.trim(),
+      deviceName: resolvedDeviceName,
+      deviceAddress: resolvedDeviceAddress ?? resolvedIpAddress!,
       paperWidth: paperWidth,
+      connectionType: connectionType,
+      ipAddress: resolvedIpAddress,
+      port: resolvedPort,
     );
   }
 
@@ -801,6 +1010,31 @@ class AdminService {
       throw ValidationException(guidance.nextStep);
     }
     await _syncQueueRepository.resetAttempts(itemId);
+  }
+
+  Future<SyncGraphRequeueResult> requeueTransactionGraphFromCurrentSnapshot({
+    required User user,
+    required String transactionUuid,
+  }) async {
+    _ensureAdmin(user);
+    final SyncGraphRequeueResult result = await _syncQueueRepository
+        .requeueTransactionGraphFromCurrentSnapshot(transactionUuid);
+    _logger.audit(
+      eventType: 'admin_sync_graph_requeued',
+      entityId: transactionUuid,
+      message:
+          'Admin re-queued a fresh transaction graph snapshot from current local state.',
+      metadata: <String, Object?>{
+        'root_queue_row_id': result.rootQueueId,
+        'record_count': result.createdItems.length,
+        'transaction_idempotency_key': result.transactionIdempotencyKey,
+        'tables': result.createdItems
+            .map((SyncGraphRequeueItem item) => item.tableName)
+            .toSet()
+            .toList(growable: false),
+      },
+    );
+    return result;
   }
 
   Future<SyncRetryAllResult> retryAllSyncItems({required User user}) async {
@@ -1017,6 +1251,108 @@ class AdminService {
     if (value < 0) {
       throw ValidationException('$fieldName cannot be negative.');
     }
+  }
+
+  String _resolvePrinterName(
+    String? value, {
+    required PrinterConnectionType connectionType,
+  }) {
+    final String trimmed = value?.trim() ?? '';
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+    if (connectionType == PrinterConnectionType.ethernet) {
+      return 'Ethernet Printer';
+    }
+    throw ValidationException('Printer name is required.');
+  }
+
+  String? _resolvePrinterAddress(
+    String? value, {
+    required PrinterConnectionType connectionType,
+  }) {
+    if (connectionType == PrinterConnectionType.ethernet) {
+      return null;
+    }
+    final String trimmed = value?.trim() ?? '';
+    _validateRequiredName(trimmed, fieldName: 'Printer address');
+    return trimmed;
+  }
+
+  String? _resolvePrinterIpAddress(
+    String? value, {
+    required PrinterConnectionType connectionType,
+  }) {
+    if (connectionType == PrinterConnectionType.bluetooth) {
+      return null;
+    }
+    final String trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      throw ValidationException(
+        'Printer host is required for ethernet connections.',
+      );
+    }
+    if (trimmed.contains(RegExp(r'\s'))) {
+      throw ValidationException('Printer host cannot contain whitespace.');
+    }
+    if (_isValidIpv4(trimmed)) {
+      return trimmed;
+    }
+    if (_looksLikeIpv4Candidate(trimmed)) {
+      throw ValidationException(
+        'Printer host must be a valid IPv4 address or hostname.',
+      );
+    }
+    if (!_isValidHostname(trimmed)) {
+      throw ValidationException(
+        'Printer host must be a valid IPv4 address or hostname.',
+      );
+    }
+    return trimmed.toLowerCase();
+  }
+
+  int? _resolvePrinterPort(
+    int? port, {
+    required PrinterConnectionType connectionType,
+  }) {
+    if (connectionType == PrinterConnectionType.bluetooth) {
+      return null;
+    }
+    final int resolvedPort = port ?? PrinterSettingsModel.defaultEthernetPort;
+    if (resolvedPort <= 0 || resolvedPort > 65535) {
+      throw ValidationException('Printer port must be between 1 and 65535.');
+    }
+    return resolvedPort;
+  }
+
+  bool _isValidIpv4(String value) {
+    final RegExp ipv4RegExp = RegExp(
+      r'^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$',
+    );
+    return ipv4RegExp.hasMatch(value);
+  }
+
+  bool _looksLikeIpv4Candidate(String value) {
+    return RegExp(r'^[0-9.]+$').hasMatch(value);
+  }
+
+  bool _isValidHostname(String value) {
+    if (value.length > 253) {
+      return false;
+    }
+    final List<String> labels = value.split('.');
+    if (labels.any((String label) => label.isEmpty || label.length > 63)) {
+      return false;
+    }
+    const String labelPattern =
+        r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$';
+    final RegExp labelRegExp = RegExp(labelPattern);
+    for (final String label in labels) {
+      if (!labelRegExp.hasMatch(label)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   int _nextSortOrder(Iterable<int> existingSortOrders) {

@@ -949,6 +949,18 @@ class $MealAdjustmentProfilesTable extends MealAdjustmentProfiles
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _profileKindMeta = const VerificationMeta(
+    'profileKind',
+  );
+  @override
+  late final GeneratedColumn<String> profileKind = GeneratedColumn<String>(
+    'profile_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('standard'),
+  );
   static const VerificationMeta _freeSwapLimitMeta = const VerificationMeta(
     'freeSwapLimit',
   );
@@ -961,6 +973,40 @@ class $MealAdjustmentProfilesTable extends MealAdjustmentProfiles
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _sandwichSurchargeMinorMeta =
+      const VerificationMeta('sandwichSurchargeMinor');
+  @override
+  late final GeneratedColumn<int> sandwichSurchargeMinor = GeneratedColumn<int>(
+    'sandwich_surcharge_minor',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(100),
+  );
+  static const VerificationMeta _baguetteSurchargeMinorMeta =
+      const VerificationMeta('baguetteSurchargeMinor');
+  @override
+  late final GeneratedColumn<int> baguetteSurchargeMinor = GeneratedColumn<int>(
+    'baguette_surcharge_minor',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(180),
+  );
+  static const VerificationMeta _sandwichSauceOptionsJsonMeta =
+      const VerificationMeta('sandwichSauceOptionsJson');
+  @override
+  late final GeneratedColumn<String> sandwichSauceOptionsJson =
+      GeneratedColumn<String>(
+        'sandwich_sauce_options_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(_defaultSandwichSauceOptionsJson),
+      );
   static const VerificationMeta _isActiveMeta = const VerificationMeta(
     'isActive',
   );
@@ -1005,7 +1051,11 @@ class $MealAdjustmentProfilesTable extends MealAdjustmentProfiles
     id,
     name,
     description,
+    profileKind,
     freeSwapLimit,
+    sandwichSurchargeMinor,
+    baguetteSurchargeMinor,
+    sandwichSauceOptionsJson,
     isActive,
     createdAt,
     updatedAt,
@@ -1042,12 +1092,48 @@ class $MealAdjustmentProfilesTable extends MealAdjustmentProfiles
         ),
       );
     }
+    if (data.containsKey('profile_kind')) {
+      context.handle(
+        _profileKindMeta,
+        profileKind.isAcceptableOrUnknown(
+          data['profile_kind']!,
+          _profileKindMeta,
+        ),
+      );
+    }
     if (data.containsKey('free_swap_limit')) {
       context.handle(
         _freeSwapLimitMeta,
         freeSwapLimit.isAcceptableOrUnknown(
           data['free_swap_limit']!,
           _freeSwapLimitMeta,
+        ),
+      );
+    }
+    if (data.containsKey('sandwich_surcharge_minor')) {
+      context.handle(
+        _sandwichSurchargeMinorMeta,
+        sandwichSurchargeMinor.isAcceptableOrUnknown(
+          data['sandwich_surcharge_minor']!,
+          _sandwichSurchargeMinorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('baguette_surcharge_minor')) {
+      context.handle(
+        _baguetteSurchargeMinorMeta,
+        baguetteSurchargeMinor.isAcceptableOrUnknown(
+          data['baguette_surcharge_minor']!,
+          _baguetteSurchargeMinorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('sandwich_sauce_options_json')) {
+      context.handle(
+        _sandwichSauceOptionsJsonMeta,
+        sandwichSauceOptionsJson.isAcceptableOrUnknown(
+          data['sandwich_sauce_options_json']!,
+          _sandwichSauceOptionsJsonMeta,
         ),
       );
     }
@@ -1090,9 +1176,25 @@ class $MealAdjustmentProfilesTable extends MealAdjustmentProfiles
         DriftSqlType.string,
         data['${effectivePrefix}description'],
       ),
+      profileKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_kind'],
+      )!,
       freeSwapLimit: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}free_swap_limit'],
+      )!,
+      sandwichSurchargeMinor: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sandwich_surcharge_minor'],
+      )!,
+      baguetteSurchargeMinor: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baguette_surcharge_minor'],
+      )!,
+      sandwichSauceOptionsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sandwich_sauce_options_json'],
       )!,
       isActive: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
@@ -1120,7 +1222,11 @@ class MealAdjustmentProfile extends DataClass
   final int id;
   final String name;
   final String? description;
+  final String profileKind;
   final int freeSwapLimit;
+  final int sandwichSurchargeMinor;
+  final int baguetteSurchargeMinor;
+  final String sandwichSauceOptionsJson;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -1128,7 +1234,11 @@ class MealAdjustmentProfile extends DataClass
     required this.id,
     required this.name,
     this.description,
+    required this.profileKind,
     required this.freeSwapLimit,
+    required this.sandwichSurchargeMinor,
+    required this.baguetteSurchargeMinor,
+    required this.sandwichSauceOptionsJson,
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -1141,7 +1251,13 @@ class MealAdjustmentProfile extends DataClass
     if (!nullToAbsent || description != null) {
       map['description'] = Variable<String>(description);
     }
+    map['profile_kind'] = Variable<String>(profileKind);
     map['free_swap_limit'] = Variable<int>(freeSwapLimit);
+    map['sandwich_surcharge_minor'] = Variable<int>(sandwichSurchargeMinor);
+    map['baguette_surcharge_minor'] = Variable<int>(baguetteSurchargeMinor);
+    map['sandwich_sauce_options_json'] = Variable<String>(
+      sandwichSauceOptionsJson,
+    );
     map['is_active'] = Variable<bool>(isActive);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -1155,7 +1271,11 @@ class MealAdjustmentProfile extends DataClass
       description: description == null && nullToAbsent
           ? const Value.absent()
           : Value(description),
+      profileKind: Value(profileKind),
       freeSwapLimit: Value(freeSwapLimit),
+      sandwichSurchargeMinor: Value(sandwichSurchargeMinor),
+      baguetteSurchargeMinor: Value(baguetteSurchargeMinor),
+      sandwichSauceOptionsJson: Value(sandwichSauceOptionsJson),
       isActive: Value(isActive),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -1171,7 +1291,17 @@ class MealAdjustmentProfile extends DataClass
       id: serializer.fromJson<int>(json['id']),
       name: serializer.fromJson<String>(json['name']),
       description: serializer.fromJson<String?>(json['description']),
+      profileKind: serializer.fromJson<String>(json['profileKind']),
       freeSwapLimit: serializer.fromJson<int>(json['freeSwapLimit']),
+      sandwichSurchargeMinor: serializer.fromJson<int>(
+        json['sandwichSurchargeMinor'],
+      ),
+      baguetteSurchargeMinor: serializer.fromJson<int>(
+        json['baguetteSurchargeMinor'],
+      ),
+      sandwichSauceOptionsJson: serializer.fromJson<String>(
+        json['sandwichSauceOptionsJson'],
+      ),
       isActive: serializer.fromJson<bool>(json['isActive']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -1184,7 +1314,13 @@ class MealAdjustmentProfile extends DataClass
       'id': serializer.toJson<int>(id),
       'name': serializer.toJson<String>(name),
       'description': serializer.toJson<String?>(description),
+      'profileKind': serializer.toJson<String>(profileKind),
       'freeSwapLimit': serializer.toJson<int>(freeSwapLimit),
+      'sandwichSurchargeMinor': serializer.toJson<int>(sandwichSurchargeMinor),
+      'baguetteSurchargeMinor': serializer.toJson<int>(baguetteSurchargeMinor),
+      'sandwichSauceOptionsJson': serializer.toJson<String>(
+        sandwichSauceOptionsJson,
+      ),
       'isActive': serializer.toJson<bool>(isActive),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -1195,7 +1331,11 @@ class MealAdjustmentProfile extends DataClass
     int? id,
     String? name,
     Value<String?> description = const Value.absent(),
+    String? profileKind,
     int? freeSwapLimit,
+    int? sandwichSurchargeMinor,
+    int? baguetteSurchargeMinor,
+    String? sandwichSauceOptionsJson,
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -1203,7 +1343,14 @@ class MealAdjustmentProfile extends DataClass
     id: id ?? this.id,
     name: name ?? this.name,
     description: description.present ? description.value : this.description,
+    profileKind: profileKind ?? this.profileKind,
     freeSwapLimit: freeSwapLimit ?? this.freeSwapLimit,
+    sandwichSurchargeMinor:
+        sandwichSurchargeMinor ?? this.sandwichSurchargeMinor,
+    baguetteSurchargeMinor:
+        baguetteSurchargeMinor ?? this.baguetteSurchargeMinor,
+    sandwichSauceOptionsJson:
+        sandwichSauceOptionsJson ?? this.sandwichSauceOptionsJson,
     isActive: isActive ?? this.isActive,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -1217,9 +1364,21 @@ class MealAdjustmentProfile extends DataClass
       description: data.description.present
           ? data.description.value
           : this.description,
+      profileKind: data.profileKind.present
+          ? data.profileKind.value
+          : this.profileKind,
       freeSwapLimit: data.freeSwapLimit.present
           ? data.freeSwapLimit.value
           : this.freeSwapLimit,
+      sandwichSurchargeMinor: data.sandwichSurchargeMinor.present
+          ? data.sandwichSurchargeMinor.value
+          : this.sandwichSurchargeMinor,
+      baguetteSurchargeMinor: data.baguetteSurchargeMinor.present
+          ? data.baguetteSurchargeMinor.value
+          : this.baguetteSurchargeMinor,
+      sandwichSauceOptionsJson: data.sandwichSauceOptionsJson.present
+          ? data.sandwichSauceOptionsJson.value
+          : this.sandwichSauceOptionsJson,
       isActive: data.isActive.present ? data.isActive.value : this.isActive,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -1232,7 +1391,11 @@ class MealAdjustmentProfile extends DataClass
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('description: $description, ')
+          ..write('profileKind: $profileKind, ')
           ..write('freeSwapLimit: $freeSwapLimit, ')
+          ..write('sandwichSurchargeMinor: $sandwichSurchargeMinor, ')
+          ..write('baguetteSurchargeMinor: $baguetteSurchargeMinor, ')
+          ..write('sandwichSauceOptionsJson: $sandwichSauceOptionsJson, ')
           ..write('isActive: $isActive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -1245,7 +1408,11 @@ class MealAdjustmentProfile extends DataClass
     id,
     name,
     description,
+    profileKind,
     freeSwapLimit,
+    sandwichSurchargeMinor,
+    baguetteSurchargeMinor,
+    sandwichSauceOptionsJson,
     isActive,
     createdAt,
     updatedAt,
@@ -1257,7 +1424,11 @@ class MealAdjustmentProfile extends DataClass
           other.id == this.id &&
           other.name == this.name &&
           other.description == this.description &&
+          other.profileKind == this.profileKind &&
           other.freeSwapLimit == this.freeSwapLimit &&
+          other.sandwichSurchargeMinor == this.sandwichSurchargeMinor &&
+          other.baguetteSurchargeMinor == this.baguetteSurchargeMinor &&
+          other.sandwichSauceOptionsJson == this.sandwichSauceOptionsJson &&
           other.isActive == this.isActive &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -1268,7 +1439,11 @@ class MealAdjustmentProfilesCompanion
   final Value<int> id;
   final Value<String> name;
   final Value<String?> description;
+  final Value<String> profileKind;
   final Value<int> freeSwapLimit;
+  final Value<int> sandwichSurchargeMinor;
+  final Value<int> baguetteSurchargeMinor;
+  final Value<String> sandwichSauceOptionsJson;
   final Value<bool> isActive;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -1276,7 +1451,11 @@ class MealAdjustmentProfilesCompanion
     this.id = const Value.absent(),
     this.name = const Value.absent(),
     this.description = const Value.absent(),
+    this.profileKind = const Value.absent(),
     this.freeSwapLimit = const Value.absent(),
+    this.sandwichSurchargeMinor = const Value.absent(),
+    this.baguetteSurchargeMinor = const Value.absent(),
+    this.sandwichSauceOptionsJson = const Value.absent(),
     this.isActive = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -1285,7 +1464,11 @@ class MealAdjustmentProfilesCompanion
     this.id = const Value.absent(),
     required String name,
     this.description = const Value.absent(),
+    this.profileKind = const Value.absent(),
     this.freeSwapLimit = const Value.absent(),
+    this.sandwichSurchargeMinor = const Value.absent(),
+    this.baguetteSurchargeMinor = const Value.absent(),
+    this.sandwichSauceOptionsJson = const Value.absent(),
     this.isActive = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -1294,7 +1477,11 @@ class MealAdjustmentProfilesCompanion
     Expression<int>? id,
     Expression<String>? name,
     Expression<String>? description,
+    Expression<String>? profileKind,
     Expression<int>? freeSwapLimit,
+    Expression<int>? sandwichSurchargeMinor,
+    Expression<int>? baguetteSurchargeMinor,
+    Expression<String>? sandwichSauceOptionsJson,
     Expression<bool>? isActive,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -1303,7 +1490,14 @@ class MealAdjustmentProfilesCompanion
       if (id != null) 'id': id,
       if (name != null) 'name': name,
       if (description != null) 'description': description,
+      if (profileKind != null) 'profile_kind': profileKind,
       if (freeSwapLimit != null) 'free_swap_limit': freeSwapLimit,
+      if (sandwichSurchargeMinor != null)
+        'sandwich_surcharge_minor': sandwichSurchargeMinor,
+      if (baguetteSurchargeMinor != null)
+        'baguette_surcharge_minor': baguetteSurchargeMinor,
+      if (sandwichSauceOptionsJson != null)
+        'sandwich_sauce_options_json': sandwichSauceOptionsJson,
       if (isActive != null) 'is_active': isActive,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -1314,7 +1508,11 @@ class MealAdjustmentProfilesCompanion
     Value<int>? id,
     Value<String>? name,
     Value<String?>? description,
+    Value<String>? profileKind,
     Value<int>? freeSwapLimit,
+    Value<int>? sandwichSurchargeMinor,
+    Value<int>? baguetteSurchargeMinor,
+    Value<String>? sandwichSauceOptionsJson,
     Value<bool>? isActive,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
@@ -1323,7 +1521,14 @@ class MealAdjustmentProfilesCompanion
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
+      profileKind: profileKind ?? this.profileKind,
       freeSwapLimit: freeSwapLimit ?? this.freeSwapLimit,
+      sandwichSurchargeMinor:
+          sandwichSurchargeMinor ?? this.sandwichSurchargeMinor,
+      baguetteSurchargeMinor:
+          baguetteSurchargeMinor ?? this.baguetteSurchargeMinor,
+      sandwichSauceOptionsJson:
+          sandwichSauceOptionsJson ?? this.sandwichSauceOptionsJson,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -1342,8 +1547,26 @@ class MealAdjustmentProfilesCompanion
     if (description.present) {
       map['description'] = Variable<String>(description.value);
     }
+    if (profileKind.present) {
+      map['profile_kind'] = Variable<String>(profileKind.value);
+    }
     if (freeSwapLimit.present) {
       map['free_swap_limit'] = Variable<int>(freeSwapLimit.value);
+    }
+    if (sandwichSurchargeMinor.present) {
+      map['sandwich_surcharge_minor'] = Variable<int>(
+        sandwichSurchargeMinor.value,
+      );
+    }
+    if (baguetteSurchargeMinor.present) {
+      map['baguette_surcharge_minor'] = Variable<int>(
+        baguetteSurchargeMinor.value,
+      );
+    }
+    if (sandwichSauceOptionsJson.present) {
+      map['sandwich_sauce_options_json'] = Variable<String>(
+        sandwichSauceOptionsJson.value,
+      );
     }
     if (isActive.present) {
       map['is_active'] = Variable<bool>(isActive.value);
@@ -1363,7 +1586,11 @@ class MealAdjustmentProfilesCompanion
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('description: $description, ')
+          ..write('profileKind: $profileKind, ')
           ..write('freeSwapLimit: $freeSwapLimit, ')
+          ..write('sandwichSurchargeMinor: $sandwichSurchargeMinor, ')
+          ..write('baguetteSurchargeMinor: $baguetteSurchargeMinor, ')
+          ..write('sandwichSauceOptionsJson: $sandwichSauceOptionsJson, ')
           ..write('isActive: $isActive, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -1998,6 +2225,539 @@ class ProductsCompanion extends UpdateCompanion<Product> {
           ..write('isActive: $isActive, ')
           ..write('isVisibleOnPos: $isVisibleOnPos, ')
           ..write('sortOrder: $sortOrder')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SandwichSauceMigrationAuditsTable extends SandwichSauceMigrationAudits
+    with
+        TableInfo<
+          $SandwichSauceMigrationAuditsTable,
+          SandwichSauceMigrationAudit
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SandwichSauceMigrationAuditsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<int> profileId = GeneratedColumn<int>(
+    'profile_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _legacyValueMeta = const VerificationMeta(
+    'legacyValue',
+  );
+  @override
+  late final GeneratedColumn<String> legacyValue = GeneratedColumn<String>(
+    'legacy_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _matchedProductIdMeta = const VerificationMeta(
+    'matchedProductId',
+  );
+  @override
+  late final GeneratedColumn<int> matchedProductId = GeneratedColumn<int>(
+    'matched_product_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _matchedProductNameMeta =
+      const VerificationMeta('matchedProductName');
+  @override
+  late final GeneratedColumn<String> matchedProductName =
+      GeneratedColumn<String>(
+        'matched_product_name',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _detailMeta = const VerificationMeta('detail');
+  @override
+  late final GeneratedColumn<String> detail = GeneratedColumn<String>(
+    'detail',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    profileId,
+    legacyValue,
+    matchedProductId,
+    matchedProductName,
+    status,
+    detail,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sandwich_sauce_migration_audits';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SandwichSauceMigrationAudit> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    }
+    if (data.containsKey('legacy_value')) {
+      context.handle(
+        _legacyValueMeta,
+        legacyValue.isAcceptableOrUnknown(
+          data['legacy_value']!,
+          _legacyValueMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_legacyValueMeta);
+    }
+    if (data.containsKey('matched_product_id')) {
+      context.handle(
+        _matchedProductIdMeta,
+        matchedProductId.isAcceptableOrUnknown(
+          data['matched_product_id']!,
+          _matchedProductIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('matched_product_name')) {
+      context.handle(
+        _matchedProductNameMeta,
+        matchedProductName.isAcceptableOrUnknown(
+          data['matched_product_name']!,
+          _matchedProductNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('detail')) {
+      context.handle(
+        _detailMeta,
+        detail.isAcceptableOrUnknown(data['detail']!, _detailMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SandwichSauceMigrationAudit map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SandwichSauceMigrationAudit(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}profile_id'],
+      ),
+      legacyValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}legacy_value'],
+      )!,
+      matchedProductId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}matched_product_id'],
+      ),
+      matchedProductName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}matched_product_name'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      detail: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}detail'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SandwichSauceMigrationAuditsTable createAlias(String alias) {
+    return $SandwichSauceMigrationAuditsTable(attachedDatabase, alias);
+  }
+}
+
+class SandwichSauceMigrationAudit extends DataClass
+    implements Insertable<SandwichSauceMigrationAudit> {
+  final int id;
+  final int? profileId;
+  final String legacyValue;
+  final int? matchedProductId;
+  final String? matchedProductName;
+  final String status;
+  final String? detail;
+  final DateTime createdAt;
+  const SandwichSauceMigrationAudit({
+    required this.id,
+    this.profileId,
+    required this.legacyValue,
+    this.matchedProductId,
+    this.matchedProductName,
+    required this.status,
+    this.detail,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || profileId != null) {
+      map['profile_id'] = Variable<int>(profileId);
+    }
+    map['legacy_value'] = Variable<String>(legacyValue);
+    if (!nullToAbsent || matchedProductId != null) {
+      map['matched_product_id'] = Variable<int>(matchedProductId);
+    }
+    if (!nullToAbsent || matchedProductName != null) {
+      map['matched_product_name'] = Variable<String>(matchedProductName);
+    }
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || detail != null) {
+      map['detail'] = Variable<String>(detail);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  SandwichSauceMigrationAuditsCompanion toCompanion(bool nullToAbsent) {
+    return SandwichSauceMigrationAuditsCompanion(
+      id: Value(id),
+      profileId: profileId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(profileId),
+      legacyValue: Value(legacyValue),
+      matchedProductId: matchedProductId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(matchedProductId),
+      matchedProductName: matchedProductName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(matchedProductName),
+      status: Value(status),
+      detail: detail == null && nullToAbsent
+          ? const Value.absent()
+          : Value(detail),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory SandwichSauceMigrationAudit.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SandwichSauceMigrationAudit(
+      id: serializer.fromJson<int>(json['id']),
+      profileId: serializer.fromJson<int?>(json['profileId']),
+      legacyValue: serializer.fromJson<String>(json['legacyValue']),
+      matchedProductId: serializer.fromJson<int?>(json['matchedProductId']),
+      matchedProductName: serializer.fromJson<String?>(
+        json['matchedProductName'],
+      ),
+      status: serializer.fromJson<String>(json['status']),
+      detail: serializer.fromJson<String?>(json['detail']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'profileId': serializer.toJson<int?>(profileId),
+      'legacyValue': serializer.toJson<String>(legacyValue),
+      'matchedProductId': serializer.toJson<int?>(matchedProductId),
+      'matchedProductName': serializer.toJson<String?>(matchedProductName),
+      'status': serializer.toJson<String>(status),
+      'detail': serializer.toJson<String?>(detail),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  SandwichSauceMigrationAudit copyWith({
+    int? id,
+    Value<int?> profileId = const Value.absent(),
+    String? legacyValue,
+    Value<int?> matchedProductId = const Value.absent(),
+    Value<String?> matchedProductName = const Value.absent(),
+    String? status,
+    Value<String?> detail = const Value.absent(),
+    DateTime? createdAt,
+  }) => SandwichSauceMigrationAudit(
+    id: id ?? this.id,
+    profileId: profileId.present ? profileId.value : this.profileId,
+    legacyValue: legacyValue ?? this.legacyValue,
+    matchedProductId: matchedProductId.present
+        ? matchedProductId.value
+        : this.matchedProductId,
+    matchedProductName: matchedProductName.present
+        ? matchedProductName.value
+        : this.matchedProductName,
+    status: status ?? this.status,
+    detail: detail.present ? detail.value : this.detail,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  SandwichSauceMigrationAudit copyWithCompanion(
+    SandwichSauceMigrationAuditsCompanion data,
+  ) {
+    return SandwichSauceMigrationAudit(
+      id: data.id.present ? data.id.value : this.id,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
+      legacyValue: data.legacyValue.present
+          ? data.legacyValue.value
+          : this.legacyValue,
+      matchedProductId: data.matchedProductId.present
+          ? data.matchedProductId.value
+          : this.matchedProductId,
+      matchedProductName: data.matchedProductName.present
+          ? data.matchedProductName.value
+          : this.matchedProductName,
+      status: data.status.present ? data.status.value : this.status,
+      detail: data.detail.present ? data.detail.value : this.detail,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SandwichSauceMigrationAudit(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('legacyValue: $legacyValue, ')
+          ..write('matchedProductId: $matchedProductId, ')
+          ..write('matchedProductName: $matchedProductName, ')
+          ..write('status: $status, ')
+          ..write('detail: $detail, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    profileId,
+    legacyValue,
+    matchedProductId,
+    matchedProductName,
+    status,
+    detail,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SandwichSauceMigrationAudit &&
+          other.id == this.id &&
+          other.profileId == this.profileId &&
+          other.legacyValue == this.legacyValue &&
+          other.matchedProductId == this.matchedProductId &&
+          other.matchedProductName == this.matchedProductName &&
+          other.status == this.status &&
+          other.detail == this.detail &&
+          other.createdAt == this.createdAt);
+}
+
+class SandwichSauceMigrationAuditsCompanion
+    extends UpdateCompanion<SandwichSauceMigrationAudit> {
+  final Value<int> id;
+  final Value<int?> profileId;
+  final Value<String> legacyValue;
+  final Value<int?> matchedProductId;
+  final Value<String?> matchedProductName;
+  final Value<String> status;
+  final Value<String?> detail;
+  final Value<DateTime> createdAt;
+  const SandwichSauceMigrationAuditsCompanion({
+    this.id = const Value.absent(),
+    this.profileId = const Value.absent(),
+    this.legacyValue = const Value.absent(),
+    this.matchedProductId = const Value.absent(),
+    this.matchedProductName = const Value.absent(),
+    this.status = const Value.absent(),
+    this.detail = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  SandwichSauceMigrationAuditsCompanion.insert({
+    this.id = const Value.absent(),
+    this.profileId = const Value.absent(),
+    required String legacyValue,
+    this.matchedProductId = const Value.absent(),
+    this.matchedProductName = const Value.absent(),
+    required String status,
+    this.detail = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  }) : legacyValue = Value(legacyValue),
+       status = Value(status);
+  static Insertable<SandwichSauceMigrationAudit> custom({
+    Expression<int>? id,
+    Expression<int>? profileId,
+    Expression<String>? legacyValue,
+    Expression<int>? matchedProductId,
+    Expression<String>? matchedProductName,
+    Expression<String>? status,
+    Expression<String>? detail,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (profileId != null) 'profile_id': profileId,
+      if (legacyValue != null) 'legacy_value': legacyValue,
+      if (matchedProductId != null) 'matched_product_id': matchedProductId,
+      if (matchedProductName != null)
+        'matched_product_name': matchedProductName,
+      if (status != null) 'status': status,
+      if (detail != null) 'detail': detail,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  SandwichSauceMigrationAuditsCompanion copyWith({
+    Value<int>? id,
+    Value<int?>? profileId,
+    Value<String>? legacyValue,
+    Value<int?>? matchedProductId,
+    Value<String?>? matchedProductName,
+    Value<String>? status,
+    Value<String?>? detail,
+    Value<DateTime>? createdAt,
+  }) {
+    return SandwichSauceMigrationAuditsCompanion(
+      id: id ?? this.id,
+      profileId: profileId ?? this.profileId,
+      legacyValue: legacyValue ?? this.legacyValue,
+      matchedProductId: matchedProductId ?? this.matchedProductId,
+      matchedProductName: matchedProductName ?? this.matchedProductName,
+      status: status ?? this.status,
+      detail: detail ?? this.detail,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<int>(profileId.value);
+    }
+    if (legacyValue.present) {
+      map['legacy_value'] = Variable<String>(legacyValue.value);
+    }
+    if (matchedProductId.present) {
+      map['matched_product_id'] = Variable<int>(matchedProductId.value);
+    }
+    if (matchedProductName.present) {
+      map['matched_product_name'] = Variable<String>(matchedProductName.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (detail.present) {
+      map['detail'] = Variable<String>(detail.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SandwichSauceMigrationAuditsCompanion(')
+          ..write('id: $id, ')
+          ..write('profileId: $profileId, ')
+          ..write('legacyValue: $legacyValue, ')
+          ..write('matchedProductId: $matchedProductId, ')
+          ..write('matchedProductName: $matchedProductName, ')
+          ..write('status: $status, ')
+          ..write('detail: $detail, ')
+          ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
@@ -6336,6 +7096,28 @@ class $ProductModifiersTable extends ProductModifiers
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _priceBehaviorMeta = const VerificationMeta(
+    'priceBehavior',
+  );
+  @override
+  late final GeneratedColumn<String> priceBehavior = GeneratedColumn<String>(
+    'price_behavior',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _uiSectionMeta = const VerificationMeta(
+    'uiSection',
+  );
+  @override
+  late final GeneratedColumn<String> uiSection = GeneratedColumn<String>(
+    'ui_section',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isActiveMeta = const VerificationMeta(
     'isActive',
   );
@@ -6360,6 +7142,8 @@ class $ProductModifiersTable extends ProductModifiers
     name,
     type,
     extraPriceMinor,
+    priceBehavior,
+    uiSection,
     isActive,
   ];
   @override
@@ -6425,6 +7209,21 @@ class $ProductModifiersTable extends ProductModifiers
         ),
       );
     }
+    if (data.containsKey('price_behavior')) {
+      context.handle(
+        _priceBehaviorMeta,
+        priceBehavior.isAcceptableOrUnknown(
+          data['price_behavior']!,
+          _priceBehaviorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('ui_section')) {
+      context.handle(
+        _uiSectionMeta,
+        uiSection.isAcceptableOrUnknown(data['ui_section']!, _uiSectionMeta),
+      );
+    }
     if (data.containsKey('is_active')) {
       context.handle(
         _isActiveMeta,
@@ -6468,6 +7267,14 @@ class $ProductModifiersTable extends ProductModifiers
         DriftSqlType.int,
         data['${effectivePrefix}extra_price_minor'],
       )!,
+      priceBehavior: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}price_behavior'],
+      ),
+      uiSection: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ui_section'],
+      ),
       isActive: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_active'],
@@ -6489,6 +7296,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
   final String name;
   final String type;
   final int extraPriceMinor;
+  final String? priceBehavior;
+  final String? uiSection;
   final bool isActive;
   const ProductModifier({
     required this.id,
@@ -6498,6 +7307,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
     required this.name,
     required this.type,
     required this.extraPriceMinor,
+    this.priceBehavior,
+    this.uiSection,
     required this.isActive,
   });
   @override
@@ -6514,6 +7325,12 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
     map['name'] = Variable<String>(name);
     map['type'] = Variable<String>(type);
     map['extra_price_minor'] = Variable<int>(extraPriceMinor);
+    if (!nullToAbsent || priceBehavior != null) {
+      map['price_behavior'] = Variable<String>(priceBehavior);
+    }
+    if (!nullToAbsent || uiSection != null) {
+      map['ui_section'] = Variable<String>(uiSection);
+    }
     map['is_active'] = Variable<bool>(isActive);
     return map;
   }
@@ -6531,6 +7348,12 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
       name: Value(name),
       type: Value(type),
       extraPriceMinor: Value(extraPriceMinor),
+      priceBehavior: priceBehavior == null && nullToAbsent
+          ? const Value.absent()
+          : Value(priceBehavior),
+      uiSection: uiSection == null && nullToAbsent
+          ? const Value.absent()
+          : Value(uiSection),
       isActive: Value(isActive),
     );
   }
@@ -6548,6 +7371,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
       name: serializer.fromJson<String>(json['name']),
       type: serializer.fromJson<String>(json['type']),
       extraPriceMinor: serializer.fromJson<int>(json['extraPriceMinor']),
+      priceBehavior: serializer.fromJson<String?>(json['priceBehavior']),
+      uiSection: serializer.fromJson<String?>(json['uiSection']),
       isActive: serializer.fromJson<bool>(json['isActive']),
     );
   }
@@ -6562,6 +7387,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
       'name': serializer.toJson<String>(name),
       'type': serializer.toJson<String>(type),
       'extraPriceMinor': serializer.toJson<int>(extraPriceMinor),
+      'priceBehavior': serializer.toJson<String?>(priceBehavior),
+      'uiSection': serializer.toJson<String?>(uiSection),
       'isActive': serializer.toJson<bool>(isActive),
     };
   }
@@ -6574,6 +7401,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
     String? name,
     String? type,
     int? extraPriceMinor,
+    Value<String?> priceBehavior = const Value.absent(),
+    Value<String?> uiSection = const Value.absent(),
     bool? isActive,
   }) => ProductModifier(
     id: id ?? this.id,
@@ -6585,6 +7414,10 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
     name: name ?? this.name,
     type: type ?? this.type,
     extraPriceMinor: extraPriceMinor ?? this.extraPriceMinor,
+    priceBehavior: priceBehavior.present
+        ? priceBehavior.value
+        : this.priceBehavior,
+    uiSection: uiSection.present ? uiSection.value : this.uiSection,
     isActive: isActive ?? this.isActive,
   );
   ProductModifier copyWithCompanion(ProductModifiersCompanion data) {
@@ -6600,6 +7433,10 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
       extraPriceMinor: data.extraPriceMinor.present
           ? data.extraPriceMinor.value
           : this.extraPriceMinor,
+      priceBehavior: data.priceBehavior.present
+          ? data.priceBehavior.value
+          : this.priceBehavior,
+      uiSection: data.uiSection.present ? data.uiSection.value : this.uiSection,
       isActive: data.isActive.present ? data.isActive.value : this.isActive,
     );
   }
@@ -6614,6 +7451,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
           ..write('name: $name, ')
           ..write('type: $type, ')
           ..write('extraPriceMinor: $extraPriceMinor, ')
+          ..write('priceBehavior: $priceBehavior, ')
+          ..write('uiSection: $uiSection, ')
           ..write('isActive: $isActive')
           ..write(')'))
         .toString();
@@ -6628,6 +7467,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
     name,
     type,
     extraPriceMinor,
+    priceBehavior,
+    uiSection,
     isActive,
   );
   @override
@@ -6641,6 +7482,8 @@ class ProductModifier extends DataClass implements Insertable<ProductModifier> {
           other.name == this.name &&
           other.type == this.type &&
           other.extraPriceMinor == this.extraPriceMinor &&
+          other.priceBehavior == this.priceBehavior &&
+          other.uiSection == this.uiSection &&
           other.isActive == this.isActive);
 }
 
@@ -6652,6 +7495,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
   final Value<String> name;
   final Value<String> type;
   final Value<int> extraPriceMinor;
+  final Value<String?> priceBehavior;
+  final Value<String?> uiSection;
   final Value<bool> isActive;
   const ProductModifiersCompanion({
     this.id = const Value.absent(),
@@ -6661,6 +7506,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
     this.name = const Value.absent(),
     this.type = const Value.absent(),
     this.extraPriceMinor = const Value.absent(),
+    this.priceBehavior = const Value.absent(),
+    this.uiSection = const Value.absent(),
     this.isActive = const Value.absent(),
   });
   ProductModifiersCompanion.insert({
@@ -6671,6 +7518,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
     required String name,
     required String type,
     this.extraPriceMinor = const Value.absent(),
+    this.priceBehavior = const Value.absent(),
+    this.uiSection = const Value.absent(),
     this.isActive = const Value.absent(),
   }) : productId = Value(productId),
        name = Value(name),
@@ -6683,6 +7532,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
     Expression<String>? name,
     Expression<String>? type,
     Expression<int>? extraPriceMinor,
+    Expression<String>? priceBehavior,
+    Expression<String>? uiSection,
     Expression<bool>? isActive,
   }) {
     return RawValuesInsertable({
@@ -6693,6 +7544,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
       if (name != null) 'name': name,
       if (type != null) 'type': type,
       if (extraPriceMinor != null) 'extra_price_minor': extraPriceMinor,
+      if (priceBehavior != null) 'price_behavior': priceBehavior,
+      if (uiSection != null) 'ui_section': uiSection,
       if (isActive != null) 'is_active': isActive,
     });
   }
@@ -6705,6 +7558,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
     Value<String>? name,
     Value<String>? type,
     Value<int>? extraPriceMinor,
+    Value<String?>? priceBehavior,
+    Value<String?>? uiSection,
     Value<bool>? isActive,
   }) {
     return ProductModifiersCompanion(
@@ -6715,6 +7570,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
       name: name ?? this.name,
       type: type ?? this.type,
       extraPriceMinor: extraPriceMinor ?? this.extraPriceMinor,
+      priceBehavior: priceBehavior ?? this.priceBehavior,
+      uiSection: uiSection ?? this.uiSection,
       isActive: isActive ?? this.isActive,
     );
   }
@@ -6743,6 +7600,12 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
     if (extraPriceMinor.present) {
       map['extra_price_minor'] = Variable<int>(extraPriceMinor.value);
     }
+    if (priceBehavior.present) {
+      map['price_behavior'] = Variable<String>(priceBehavior.value);
+    }
+    if (uiSection.present) {
+      map['ui_section'] = Variable<String>(uiSection.value);
+    }
     if (isActive.present) {
       map['is_active'] = Variable<bool>(isActive.value);
     }
@@ -6759,6 +7622,8 @@ class ProductModifiersCompanion extends UpdateCompanion<ProductModifier> {
           ..write('name: $name, ')
           ..write('type: $type, ')
           ..write('extraPriceMinor: $extraPriceMinor, ')
+          ..write('priceBehavior: $priceBehavior, ')
+          ..write('uiSection: $uiSection, ')
           ..write('isActive: $isActive')
           ..write(')'))
         .toString();
@@ -7356,7 +8221,7 @@ class $TransactionsTable extends Transactions
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
-    defaultValue: const Constant('open'),
+    defaultValue: const Constant('draft'),
   );
   static const VerificationMeta _subtotalMinorMeta = const VerificationMeta(
     'subtotalMinor',
@@ -9048,6 +9913,28 @@ class $OrderModifiersTable extends OrderModifiers
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _priceBehaviorMeta = const VerificationMeta(
+    'priceBehavior',
+  );
+  @override
+  late final GeneratedColumn<String> priceBehavior = GeneratedColumn<String>(
+    'price_behavior',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _uiSectionMeta = const VerificationMeta(
+    'uiSection',
+  );
+  @override
+  late final GeneratedColumn<String> uiSection = GeneratedColumn<String>(
+    'ui_section',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -9063,6 +9950,8 @@ class $OrderModifiersTable extends OrderModifiers
     unitPriceMinor,
     priceEffectMinor,
     sortKey,
+    priceBehavior,
+    uiSection,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -9180,6 +10069,21 @@ class $OrderModifiersTable extends OrderModifiers
         sortKey.isAcceptableOrUnknown(data['sort_key']!, _sortKeyMeta),
       );
     }
+    if (data.containsKey('price_behavior')) {
+      context.handle(
+        _priceBehaviorMeta,
+        priceBehavior.isAcceptableOrUnknown(
+          data['price_behavior']!,
+          _priceBehaviorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('ui_section')) {
+      context.handle(
+        _uiSectionMeta,
+        uiSection.isAcceptableOrUnknown(data['ui_section']!, _uiSectionMeta),
+      );
+    }
     return context;
   }
 
@@ -9241,6 +10145,14 @@ class $OrderModifiersTable extends OrderModifiers
         DriftSqlType.int,
         data['${effectivePrefix}sort_key'],
       )!,
+      priceBehavior: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}price_behavior'],
+      ),
+      uiSection: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ui_section'],
+      ),
     );
   }
 
@@ -9264,6 +10176,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
   final int unitPriceMinor;
   final int priceEffectMinor;
   final int sortKey;
+  final String? priceBehavior;
+  final String? uiSection;
   const OrderModifier({
     required this.id,
     required this.uuid,
@@ -9278,6 +10192,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
     required this.unitPriceMinor,
     required this.priceEffectMinor,
     required this.sortKey,
+    this.priceBehavior,
+    this.uiSection,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -9301,6 +10217,12 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
     map['unit_price_minor'] = Variable<int>(unitPriceMinor);
     map['price_effect_minor'] = Variable<int>(priceEffectMinor);
     map['sort_key'] = Variable<int>(sortKey);
+    if (!nullToAbsent || priceBehavior != null) {
+      map['price_behavior'] = Variable<String>(priceBehavior);
+    }
+    if (!nullToAbsent || uiSection != null) {
+      map['ui_section'] = Variable<String>(uiSection);
+    }
     return map;
   }
 
@@ -9325,6 +10247,12 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
       unitPriceMinor: Value(unitPriceMinor),
       priceEffectMinor: Value(priceEffectMinor),
       sortKey: Value(sortKey),
+      priceBehavior: priceBehavior == null && nullToAbsent
+          ? const Value.absent()
+          : Value(priceBehavior),
+      uiSection: uiSection == null && nullToAbsent
+          ? const Value.absent()
+          : Value(uiSection),
     );
   }
 
@@ -9347,6 +10275,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
       unitPriceMinor: serializer.fromJson<int>(json['unitPriceMinor']),
       priceEffectMinor: serializer.fromJson<int>(json['priceEffectMinor']),
       sortKey: serializer.fromJson<int>(json['sortKey']),
+      priceBehavior: serializer.fromJson<String?>(json['priceBehavior']),
+      uiSection: serializer.fromJson<String?>(json['uiSection']),
     );
   }
   @override
@@ -9366,6 +10296,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
       'unitPriceMinor': serializer.toJson<int>(unitPriceMinor),
       'priceEffectMinor': serializer.toJson<int>(priceEffectMinor),
       'sortKey': serializer.toJson<int>(sortKey),
+      'priceBehavior': serializer.toJson<String?>(priceBehavior),
+      'uiSection': serializer.toJson<String?>(uiSection),
     };
   }
 
@@ -9383,6 +10315,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
     int? unitPriceMinor,
     int? priceEffectMinor,
     int? sortKey,
+    Value<String?> priceBehavior = const Value.absent(),
+    Value<String?> uiSection = const Value.absent(),
   }) => OrderModifier(
     id: id ?? this.id,
     uuid: uuid ?? this.uuid,
@@ -9401,6 +10335,10 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
     unitPriceMinor: unitPriceMinor ?? this.unitPriceMinor,
     priceEffectMinor: priceEffectMinor ?? this.priceEffectMinor,
     sortKey: sortKey ?? this.sortKey,
+    priceBehavior: priceBehavior.present
+        ? priceBehavior.value
+        : this.priceBehavior,
+    uiSection: uiSection.present ? uiSection.value : this.uiSection,
   );
   OrderModifier copyWithCompanion(OrderModifiersCompanion data) {
     return OrderModifier(
@@ -9431,6 +10369,10 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
           ? data.priceEffectMinor.value
           : this.priceEffectMinor,
       sortKey: data.sortKey.present ? data.sortKey.value : this.sortKey,
+      priceBehavior: data.priceBehavior.present
+          ? data.priceBehavior.value
+          : this.priceBehavior,
+      uiSection: data.uiSection.present ? data.uiSection.value : this.uiSection,
     );
   }
 
@@ -9449,7 +10391,9 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
           ..write('chargeReason: $chargeReason, ')
           ..write('unitPriceMinor: $unitPriceMinor, ')
           ..write('priceEffectMinor: $priceEffectMinor, ')
-          ..write('sortKey: $sortKey')
+          ..write('sortKey: $sortKey, ')
+          ..write('priceBehavior: $priceBehavior, ')
+          ..write('uiSection: $uiSection')
           ..write(')'))
         .toString();
   }
@@ -9469,6 +10413,8 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
     unitPriceMinor,
     priceEffectMinor,
     sortKey,
+    priceBehavior,
+    uiSection,
   );
   @override
   bool operator ==(Object other) =>
@@ -9486,7 +10432,9 @@ class OrderModifier extends DataClass implements Insertable<OrderModifier> {
           other.chargeReason == this.chargeReason &&
           other.unitPriceMinor == this.unitPriceMinor &&
           other.priceEffectMinor == this.priceEffectMinor &&
-          other.sortKey == this.sortKey);
+          other.sortKey == this.sortKey &&
+          other.priceBehavior == this.priceBehavior &&
+          other.uiSection == this.uiSection);
 }
 
 class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
@@ -9503,6 +10451,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
   final Value<int> unitPriceMinor;
   final Value<int> priceEffectMinor;
   final Value<int> sortKey;
+  final Value<String?> priceBehavior;
+  final Value<String?> uiSection;
   const OrderModifiersCompanion({
     this.id = const Value.absent(),
     this.uuid = const Value.absent(),
@@ -9517,6 +10467,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
     this.unitPriceMinor = const Value.absent(),
     this.priceEffectMinor = const Value.absent(),
     this.sortKey = const Value.absent(),
+    this.priceBehavior = const Value.absent(),
+    this.uiSection = const Value.absent(),
   });
   OrderModifiersCompanion.insert({
     this.id = const Value.absent(),
@@ -9532,6 +10484,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
     this.unitPriceMinor = const Value.absent(),
     this.priceEffectMinor = const Value.absent(),
     this.sortKey = const Value.absent(),
+    this.priceBehavior = const Value.absent(),
+    this.uiSection = const Value.absent(),
   }) : uuid = Value(uuid),
        transactionLineId = Value(transactionLineId),
        action = Value(action),
@@ -9550,6 +10504,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
     Expression<int>? unitPriceMinor,
     Expression<int>? priceEffectMinor,
     Expression<int>? sortKey,
+    Expression<String>? priceBehavior,
+    Expression<String>? uiSection,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -9565,6 +10521,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
       if (unitPriceMinor != null) 'unit_price_minor': unitPriceMinor,
       if (priceEffectMinor != null) 'price_effect_minor': priceEffectMinor,
       if (sortKey != null) 'sort_key': sortKey,
+      if (priceBehavior != null) 'price_behavior': priceBehavior,
+      if (uiSection != null) 'ui_section': uiSection,
     });
   }
 
@@ -9582,6 +10540,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
     Value<int>? unitPriceMinor,
     Value<int>? priceEffectMinor,
     Value<int>? sortKey,
+    Value<String?>? priceBehavior,
+    Value<String?>? uiSection,
   }) {
     return OrderModifiersCompanion(
       id: id ?? this.id,
@@ -9597,6 +10557,8 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
       unitPriceMinor: unitPriceMinor ?? this.unitPriceMinor,
       priceEffectMinor: priceEffectMinor ?? this.priceEffectMinor,
       sortKey: sortKey ?? this.sortKey,
+      priceBehavior: priceBehavior ?? this.priceBehavior,
+      uiSection: uiSection ?? this.uiSection,
     );
   }
 
@@ -9642,6 +10604,12 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
     if (sortKey.present) {
       map['sort_key'] = Variable<int>(sortKey.value);
     }
+    if (priceBehavior.present) {
+      map['price_behavior'] = Variable<String>(priceBehavior.value);
+    }
+    if (uiSection.present) {
+      map['ui_section'] = Variable<String>(uiSection.value);
+    }
     return map;
   }
 
@@ -9660,7 +10628,9 @@ class OrderModifiersCompanion extends UpdateCompanion<OrderModifier> {
           ..write('chargeReason: $chargeReason, ')
           ..write('unitPriceMinor: $unitPriceMinor, ')
           ..write('priceEffectMinor: $priceEffectMinor, ')
-          ..write('sortKey: $sortKey')
+          ..write('sortKey: $sortKey, ')
+          ..write('priceBehavior: $priceBehavior, ')
+          ..write('uiSection: $uiSection')
           ..write(')'))
         .toString();
   }
@@ -14078,6 +15048,44 @@ class $PrinterSettingsTable extends PrinterSettings
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _connectionTypeMeta = const VerificationMeta(
+    'connectionType',
+  );
+  @override
+  late final GeneratedColumn<String> connectionType = GeneratedColumn<String>(
+    'connection_type',
+    aliasedName,
+    true,
+    check: () =>
+        connectionType.isNull() |
+        connectionType.isIn(const <String>['bluetooth', 'ethernet']),
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ipAddressMeta = const VerificationMeta(
+    'ipAddress',
+  );
+  @override
+  late final GeneratedColumn<String> ipAddress = GeneratedColumn<String>(
+    'ip_address',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _portMeta = const VerificationMeta('port');
+  @override
+  late final GeneratedColumn<int> port = GeneratedColumn<int>(
+    'port',
+    aliasedName,
+    true,
+    check: () =>
+        port.isNull() |
+        ComparableExpr(port).isBiggerOrEqualValue(1) &
+            ComparableExpr(port).isSmallerOrEqualValue(65535),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _paperWidthMeta = const VerificationMeta(
     'paperWidth',
   );
@@ -14110,6 +15118,9 @@ class $PrinterSettingsTable extends PrinterSettings
     id,
     deviceName,
     deviceAddress,
+    connectionType,
+    ipAddress,
+    port,
     paperWidth,
     isActive,
   ];
@@ -14147,6 +15158,27 @@ class $PrinterSettingsTable extends PrinterSettings
     } else if (isInserting) {
       context.missing(_deviceAddressMeta);
     }
+    if (data.containsKey('connection_type')) {
+      context.handle(
+        _connectionTypeMeta,
+        connectionType.isAcceptableOrUnknown(
+          data['connection_type']!,
+          _connectionTypeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('ip_address')) {
+      context.handle(
+        _ipAddressMeta,
+        ipAddress.isAcceptableOrUnknown(data['ip_address']!, _ipAddressMeta),
+      );
+    }
+    if (data.containsKey('port')) {
+      context.handle(
+        _portMeta,
+        port.isAcceptableOrUnknown(data['port']!, _portMeta),
+      );
+    }
     if (data.containsKey('paper_width')) {
       context.handle(
         _paperWidthMeta,
@@ -14180,6 +15212,18 @@ class $PrinterSettingsTable extends PrinterSettings
         DriftSqlType.string,
         data['${effectivePrefix}device_address'],
       )!,
+      connectionType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}connection_type'],
+      ),
+      ipAddress: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ip_address'],
+      ),
+      port: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}port'],
+      ),
       paperWidth: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}paper_width'],
@@ -14201,12 +15245,18 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
   final int id;
   final String deviceName;
   final String deviceAddress;
+  final String? connectionType;
+  final String? ipAddress;
+  final int? port;
   final int paperWidth;
   final bool isActive;
   const PrinterSetting({
     required this.id,
     required this.deviceName,
     required this.deviceAddress,
+    this.connectionType,
+    this.ipAddress,
+    this.port,
     required this.paperWidth,
     required this.isActive,
   });
@@ -14216,6 +15266,15 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
     map['id'] = Variable<int>(id);
     map['device_name'] = Variable<String>(deviceName);
     map['device_address'] = Variable<String>(deviceAddress);
+    if (!nullToAbsent || connectionType != null) {
+      map['connection_type'] = Variable<String>(connectionType);
+    }
+    if (!nullToAbsent || ipAddress != null) {
+      map['ip_address'] = Variable<String>(ipAddress);
+    }
+    if (!nullToAbsent || port != null) {
+      map['port'] = Variable<int>(port);
+    }
     map['paper_width'] = Variable<int>(paperWidth);
     map['is_active'] = Variable<bool>(isActive);
     return map;
@@ -14226,6 +15285,13 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
       id: Value(id),
       deviceName: Value(deviceName),
       deviceAddress: Value(deviceAddress),
+      connectionType: connectionType == null && nullToAbsent
+          ? const Value.absent()
+          : Value(connectionType),
+      ipAddress: ipAddress == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ipAddress),
+      port: port == null && nullToAbsent ? const Value.absent() : Value(port),
       paperWidth: Value(paperWidth),
       isActive: Value(isActive),
     );
@@ -14240,6 +15306,9 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
       id: serializer.fromJson<int>(json['id']),
       deviceName: serializer.fromJson<String>(json['deviceName']),
       deviceAddress: serializer.fromJson<String>(json['deviceAddress']),
+      connectionType: serializer.fromJson<String?>(json['connectionType']),
+      ipAddress: serializer.fromJson<String?>(json['ipAddress']),
+      port: serializer.fromJson<int?>(json['port']),
       paperWidth: serializer.fromJson<int>(json['paperWidth']),
       isActive: serializer.fromJson<bool>(json['isActive']),
     );
@@ -14251,6 +15320,9 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
       'id': serializer.toJson<int>(id),
       'deviceName': serializer.toJson<String>(deviceName),
       'deviceAddress': serializer.toJson<String>(deviceAddress),
+      'connectionType': serializer.toJson<String?>(connectionType),
+      'ipAddress': serializer.toJson<String?>(ipAddress),
+      'port': serializer.toJson<int?>(port),
       'paperWidth': serializer.toJson<int>(paperWidth),
       'isActive': serializer.toJson<bool>(isActive),
     };
@@ -14260,12 +15332,20 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
     int? id,
     String? deviceName,
     String? deviceAddress,
+    Value<String?> connectionType = const Value.absent(),
+    Value<String?> ipAddress = const Value.absent(),
+    Value<int?> port = const Value.absent(),
     int? paperWidth,
     bool? isActive,
   }) => PrinterSetting(
     id: id ?? this.id,
     deviceName: deviceName ?? this.deviceName,
     deviceAddress: deviceAddress ?? this.deviceAddress,
+    connectionType: connectionType.present
+        ? connectionType.value
+        : this.connectionType,
+    ipAddress: ipAddress.present ? ipAddress.value : this.ipAddress,
+    port: port.present ? port.value : this.port,
     paperWidth: paperWidth ?? this.paperWidth,
     isActive: isActive ?? this.isActive,
   );
@@ -14278,6 +15358,11 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
       deviceAddress: data.deviceAddress.present
           ? data.deviceAddress.value
           : this.deviceAddress,
+      connectionType: data.connectionType.present
+          ? data.connectionType.value
+          : this.connectionType,
+      ipAddress: data.ipAddress.present ? data.ipAddress.value : this.ipAddress,
+      port: data.port.present ? data.port.value : this.port,
       paperWidth: data.paperWidth.present
           ? data.paperWidth.value
           : this.paperWidth,
@@ -14291,6 +15376,9 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
           ..write('id: $id, ')
           ..write('deviceName: $deviceName, ')
           ..write('deviceAddress: $deviceAddress, ')
+          ..write('connectionType: $connectionType, ')
+          ..write('ipAddress: $ipAddress, ')
+          ..write('port: $port, ')
           ..write('paperWidth: $paperWidth, ')
           ..write('isActive: $isActive')
           ..write(')'))
@@ -14298,8 +15386,16 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, deviceName, deviceAddress, paperWidth, isActive);
+  int get hashCode => Object.hash(
+    id,
+    deviceName,
+    deviceAddress,
+    connectionType,
+    ipAddress,
+    port,
+    paperWidth,
+    isActive,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -14307,6 +15403,9 @@ class PrinterSetting extends DataClass implements Insertable<PrinterSetting> {
           other.id == this.id &&
           other.deviceName == this.deviceName &&
           other.deviceAddress == this.deviceAddress &&
+          other.connectionType == this.connectionType &&
+          other.ipAddress == this.ipAddress &&
+          other.port == this.port &&
           other.paperWidth == this.paperWidth &&
           other.isActive == this.isActive);
 }
@@ -14315,12 +15414,18 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
   final Value<int> id;
   final Value<String> deviceName;
   final Value<String> deviceAddress;
+  final Value<String?> connectionType;
+  final Value<String?> ipAddress;
+  final Value<int?> port;
   final Value<int> paperWidth;
   final Value<bool> isActive;
   const PrinterSettingsCompanion({
     this.id = const Value.absent(),
     this.deviceName = const Value.absent(),
     this.deviceAddress = const Value.absent(),
+    this.connectionType = const Value.absent(),
+    this.ipAddress = const Value.absent(),
+    this.port = const Value.absent(),
     this.paperWidth = const Value.absent(),
     this.isActive = const Value.absent(),
   });
@@ -14328,6 +15433,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
     this.id = const Value.absent(),
     required String deviceName,
     required String deviceAddress,
+    this.connectionType = const Value.absent(),
+    this.ipAddress = const Value.absent(),
+    this.port = const Value.absent(),
     this.paperWidth = const Value.absent(),
     this.isActive = const Value.absent(),
   }) : deviceName = Value(deviceName),
@@ -14336,6 +15444,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
     Expression<int>? id,
     Expression<String>? deviceName,
     Expression<String>? deviceAddress,
+    Expression<String>? connectionType,
+    Expression<String>? ipAddress,
+    Expression<int>? port,
     Expression<int>? paperWidth,
     Expression<bool>? isActive,
   }) {
@@ -14343,6 +15454,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
       if (id != null) 'id': id,
       if (deviceName != null) 'device_name': deviceName,
       if (deviceAddress != null) 'device_address': deviceAddress,
+      if (connectionType != null) 'connection_type': connectionType,
+      if (ipAddress != null) 'ip_address': ipAddress,
+      if (port != null) 'port': port,
       if (paperWidth != null) 'paper_width': paperWidth,
       if (isActive != null) 'is_active': isActive,
     });
@@ -14352,6 +15466,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
     Value<int>? id,
     Value<String>? deviceName,
     Value<String>? deviceAddress,
+    Value<String?>? connectionType,
+    Value<String?>? ipAddress,
+    Value<int?>? port,
     Value<int>? paperWidth,
     Value<bool>? isActive,
   }) {
@@ -14359,6 +15476,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
       id: id ?? this.id,
       deviceName: deviceName ?? this.deviceName,
       deviceAddress: deviceAddress ?? this.deviceAddress,
+      connectionType: connectionType ?? this.connectionType,
+      ipAddress: ipAddress ?? this.ipAddress,
+      port: port ?? this.port,
       paperWidth: paperWidth ?? this.paperWidth,
       isActive: isActive ?? this.isActive,
     );
@@ -14376,6 +15496,15 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
     if (deviceAddress.present) {
       map['device_address'] = Variable<String>(deviceAddress.value);
     }
+    if (connectionType.present) {
+      map['connection_type'] = Variable<String>(connectionType.value);
+    }
+    if (ipAddress.present) {
+      map['ip_address'] = Variable<String>(ipAddress.value);
+    }
+    if (port.present) {
+      map['port'] = Variable<int>(port.value);
+    }
     if (paperWidth.present) {
       map['paper_width'] = Variable<int>(paperWidth.value);
     }
@@ -14391,6 +15520,9 @@ class PrinterSettingsCompanion extends UpdateCompanion<PrinterSetting> {
           ..write('id: $id, ')
           ..write('deviceName: $deviceName, ')
           ..write('deviceAddress: $deviceAddress, ')
+          ..write('connectionType: $connectionType, ')
+          ..write('ipAddress: $ipAddress, ')
+          ..write('port: $port, ')
           ..write('paperWidth: $paperWidth, ')
           ..write('isActive: $isActive')
           ..write(')'))
@@ -15022,6 +16154,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $MealAdjustmentProfilesTable mealAdjustmentProfiles =
       $MealAdjustmentProfilesTable(this);
   late final $ProductsTable products = $ProductsTable(this);
+  late final $SandwichSauceMigrationAuditsTable sandwichSauceMigrationAudits =
+      $SandwichSauceMigrationAuditsTable(this);
   late final $MealAdjustmentProfileComponentsTable
   mealAdjustmentProfileComponents = $MealAdjustmentProfileComponentsTable(this);
   late final $MealAdjustmentComponentOptionsTable
@@ -15073,6 +16207,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     categories,
     mealAdjustmentProfiles,
     products,
+    sandwichSauceMigrationAudits,
     mealAdjustmentProfileComponents,
     mealAdjustmentComponentOptions,
     mealAdjustmentProfileExtras,
@@ -16735,7 +17870,11 @@ typedef $$MealAdjustmentProfilesTableCreateCompanionBuilder =
       Value<int> id,
       required String name,
       Value<String?> description,
+      Value<String> profileKind,
       Value<int> freeSwapLimit,
+      Value<int> sandwichSurchargeMinor,
+      Value<int> baguetteSurchargeMinor,
+      Value<String> sandwichSauceOptionsJson,
       Value<bool> isActive,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -16745,7 +17884,11 @@ typedef $$MealAdjustmentProfilesTableUpdateCompanionBuilder =
       Value<int> id,
       Value<String> name,
       Value<String?> description,
+      Value<String> profileKind,
       Value<int> freeSwapLimit,
+      Value<int> sandwichSurchargeMinor,
+      Value<int> baguetteSurchargeMinor,
+      Value<String> sandwichSauceOptionsJson,
       Value<bool> isActive,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -16894,8 +18037,28 @@ class $$MealAdjustmentProfilesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get profileKind => $composableBuilder(
+    column: $table.profileKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<int> get freeSwapLimit => $composableBuilder(
     column: $table.freeSwapLimit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sandwichSurchargeMinor => $composableBuilder(
+    column: $table.sandwichSurchargeMinor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baguetteSurchargeMinor => $composableBuilder(
+    column: $table.baguetteSurchargeMinor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sandwichSauceOptionsJson => $composableBuilder(
+    column: $table.sandwichSauceOptionsJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -17049,8 +18212,28 @@ class $$MealAdjustmentProfilesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get profileKind => $composableBuilder(
+    column: $table.profileKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get freeSwapLimit => $composableBuilder(
     column: $table.freeSwapLimit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sandwichSurchargeMinor => $composableBuilder(
+    column: $table.sandwichSurchargeMinor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baguetteSurchargeMinor => $composableBuilder(
+    column: $table.baguetteSurchargeMinor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sandwichSauceOptionsJson => $composableBuilder(
+    column: $table.sandwichSauceOptionsJson,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -17090,8 +18273,28 @@ class $$MealAdjustmentProfilesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get profileKind => $composableBuilder(
+    column: $table.profileKind,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get freeSwapLimit => $composableBuilder(
     column: $table.freeSwapLimit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get sandwichSurchargeMinor => $composableBuilder(
+    column: $table.sandwichSurchargeMinor,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baguetteSurchargeMinor => $composableBuilder(
+    column: $table.baguetteSurchargeMinor,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sandwichSauceOptionsJson => $composableBuilder(
+    column: $table.sandwichSauceOptionsJson,
     builder: (column) => column,
   );
 
@@ -17264,7 +18467,11 @@ class $$MealAdjustmentProfilesTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String?> description = const Value.absent(),
+                Value<String> profileKind = const Value.absent(),
                 Value<int> freeSwapLimit = const Value.absent(),
+                Value<int> sandwichSurchargeMinor = const Value.absent(),
+                Value<int> baguetteSurchargeMinor = const Value.absent(),
+                Value<String> sandwichSauceOptionsJson = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -17272,7 +18479,11 @@ class $$MealAdjustmentProfilesTableTableManager
                 id: id,
                 name: name,
                 description: description,
+                profileKind: profileKind,
                 freeSwapLimit: freeSwapLimit,
+                sandwichSurchargeMinor: sandwichSurchargeMinor,
+                baguetteSurchargeMinor: baguetteSurchargeMinor,
+                sandwichSauceOptionsJson: sandwichSauceOptionsJson,
                 isActive: isActive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -17282,7 +18493,11 @@ class $$MealAdjustmentProfilesTableTableManager
                 Value<int> id = const Value.absent(),
                 required String name,
                 Value<String?> description = const Value.absent(),
+                Value<String> profileKind = const Value.absent(),
                 Value<int> freeSwapLimit = const Value.absent(),
+                Value<int> sandwichSurchargeMinor = const Value.absent(),
+                Value<int> baguetteSurchargeMinor = const Value.absent(),
+                Value<String> sandwichSauceOptionsJson = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -17290,7 +18505,11 @@ class $$MealAdjustmentProfilesTableTableManager
                 id: id,
                 name: name,
                 description: description,
+                profileKind: profileKind,
                 freeSwapLimit: freeSwapLimit,
+                sandwichSurchargeMinor: sandwichSurchargeMinor,
+                baguetteSurchargeMinor: baguetteSurchargeMinor,
+                sandwichSauceOptionsJson: sandwichSauceOptionsJson,
                 isActive: isActive,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -19315,6 +20534,282 @@ typedef $$ProductsTableProcessedTableManager =
         bool orderModifiersRefs,
         bool breakfastCookingInstructionsRefs,
       })
+    >;
+typedef $$SandwichSauceMigrationAuditsTableCreateCompanionBuilder =
+    SandwichSauceMigrationAuditsCompanion Function({
+      Value<int> id,
+      Value<int?> profileId,
+      required String legacyValue,
+      Value<int?> matchedProductId,
+      Value<String?> matchedProductName,
+      required String status,
+      Value<String?> detail,
+      Value<DateTime> createdAt,
+    });
+typedef $$SandwichSauceMigrationAuditsTableUpdateCompanionBuilder =
+    SandwichSauceMigrationAuditsCompanion Function({
+      Value<int> id,
+      Value<int?> profileId,
+      Value<String> legacyValue,
+      Value<int?> matchedProductId,
+      Value<String?> matchedProductName,
+      Value<String> status,
+      Value<String?> detail,
+      Value<DateTime> createdAt,
+    });
+
+class $$SandwichSauceMigrationAuditsTableFilterComposer
+    extends Composer<_$AppDatabase, $SandwichSauceMigrationAuditsTable> {
+  $$SandwichSauceMigrationAuditsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get legacyValue => $composableBuilder(
+    column: $table.legacyValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get matchedProductId => $composableBuilder(
+    column: $table.matchedProductId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get matchedProductName => $composableBuilder(
+    column: $table.matchedProductName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get detail => $composableBuilder(
+    column: $table.detail,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SandwichSauceMigrationAuditsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SandwichSauceMigrationAuditsTable> {
+  $$SandwichSauceMigrationAuditsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get legacyValue => $composableBuilder(
+    column: $table.legacyValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get matchedProductId => $composableBuilder(
+    column: $table.matchedProductId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get matchedProductName => $composableBuilder(
+    column: $table.matchedProductName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get detail => $composableBuilder(
+    column: $table.detail,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SandwichSauceMigrationAuditsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SandwichSauceMigrationAuditsTable> {
+  $$SandwichSauceMigrationAuditsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
+
+  GeneratedColumn<String> get legacyValue => $composableBuilder(
+    column: $table.legacyValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get matchedProductId => $composableBuilder(
+    column: $table.matchedProductId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get matchedProductName => $composableBuilder(
+    column: $table.matchedProductName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get detail =>
+      $composableBuilder(column: $table.detail, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$SandwichSauceMigrationAuditsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SandwichSauceMigrationAuditsTable,
+          SandwichSauceMigrationAudit,
+          $$SandwichSauceMigrationAuditsTableFilterComposer,
+          $$SandwichSauceMigrationAuditsTableOrderingComposer,
+          $$SandwichSauceMigrationAuditsTableAnnotationComposer,
+          $$SandwichSauceMigrationAuditsTableCreateCompanionBuilder,
+          $$SandwichSauceMigrationAuditsTableUpdateCompanionBuilder,
+          (
+            SandwichSauceMigrationAudit,
+            BaseReferences<
+              _$AppDatabase,
+              $SandwichSauceMigrationAuditsTable,
+              SandwichSauceMigrationAudit
+            >,
+          ),
+          SandwichSauceMigrationAudit,
+          PrefetchHooks Function()
+        > {
+  $$SandwichSauceMigrationAuditsTableTableManager(
+    _$AppDatabase db,
+    $SandwichSauceMigrationAuditsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SandwichSauceMigrationAuditsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$SandwichSauceMigrationAuditsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SandwichSauceMigrationAuditsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int?> profileId = const Value.absent(),
+                Value<String> legacyValue = const Value.absent(),
+                Value<int?> matchedProductId = const Value.absent(),
+                Value<String?> matchedProductName = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> detail = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => SandwichSauceMigrationAuditsCompanion(
+                id: id,
+                profileId: profileId,
+                legacyValue: legacyValue,
+                matchedProductId: matchedProductId,
+                matchedProductName: matchedProductName,
+                status: status,
+                detail: detail,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int?> profileId = const Value.absent(),
+                required String legacyValue,
+                Value<int?> matchedProductId = const Value.absent(),
+                Value<String?> matchedProductName = const Value.absent(),
+                required String status,
+                Value<String?> detail = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => SandwichSauceMigrationAuditsCompanion.insert(
+                id: id,
+                profileId: profileId,
+                legacyValue: legacyValue,
+                matchedProductId: matchedProductId,
+                matchedProductName: matchedProductName,
+                status: status,
+                detail: detail,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SandwichSauceMigrationAuditsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SandwichSauceMigrationAuditsTable,
+      SandwichSauceMigrationAudit,
+      $$SandwichSauceMigrationAuditsTableFilterComposer,
+      $$SandwichSauceMigrationAuditsTableOrderingComposer,
+      $$SandwichSauceMigrationAuditsTableAnnotationComposer,
+      $$SandwichSauceMigrationAuditsTableCreateCompanionBuilder,
+      $$SandwichSauceMigrationAuditsTableUpdateCompanionBuilder,
+      (
+        SandwichSauceMigrationAudit,
+        BaseReferences<
+          _$AppDatabase,
+          $SandwichSauceMigrationAuditsTable,
+          SandwichSauceMigrationAudit
+        >,
+      ),
+      SandwichSauceMigrationAudit,
+      PrefetchHooks Function()
     >;
 typedef $$MealAdjustmentProfileComponentsTableCreateCompanionBuilder =
     MealAdjustmentProfileComponentsCompanion Function({
@@ -23937,6 +25432,8 @@ typedef $$ProductModifiersTableCreateCompanionBuilder =
       required String name,
       required String type,
       Value<int> extraPriceMinor,
+      Value<String?> priceBehavior,
+      Value<String?> uiSection,
       Value<bool> isActive,
     });
 typedef $$ProductModifiersTableUpdateCompanionBuilder =
@@ -23948,6 +25445,8 @@ typedef $$ProductModifiersTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String> type,
       Value<int> extraPriceMinor,
+      Value<String?> priceBehavior,
+      Value<String?> uiSection,
       Value<bool> isActive,
     });
 
@@ -24044,6 +25543,16 @@ class $$ProductModifiersTableFilterComposer
 
   ColumnFilters<int> get extraPriceMinor => $composableBuilder(
     column: $table.extraPriceMinor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uiSection => $composableBuilder(
+    column: $table.uiSection,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -24151,6 +25660,16 @@ class $$ProductModifiersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get uiSection => $composableBuilder(
+    column: $table.uiSection,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isActive => $composableBuilder(
     column: $table.isActive,
     builder: (column) => ColumnOrderings(column),
@@ -24248,6 +25767,14 @@ class $$ProductModifiersTableAnnotationComposer
     column: $table.extraPriceMinor,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get uiSection =>
+      $composableBuilder(column: $table.uiSection, builder: (column) => column);
 
   GeneratedColumn<bool> get isActive =>
       $composableBuilder(column: $table.isActive, builder: (column) => column);
@@ -24363,6 +25890,8 @@ class $$ProductModifiersTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String> type = const Value.absent(),
                 Value<int> extraPriceMinor = const Value.absent(),
+                Value<String?> priceBehavior = const Value.absent(),
+                Value<String?> uiSection = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
               }) => ProductModifiersCompanion(
                 id: id,
@@ -24372,6 +25901,8 @@ class $$ProductModifiersTableTableManager
                 name: name,
                 type: type,
                 extraPriceMinor: extraPriceMinor,
+                priceBehavior: priceBehavior,
+                uiSection: uiSection,
                 isActive: isActive,
               ),
           createCompanionCallback:
@@ -24383,6 +25914,8 @@ class $$ProductModifiersTableTableManager
                 required String name,
                 required String type,
                 Value<int> extraPriceMinor = const Value.absent(),
+                Value<String?> priceBehavior = const Value.absent(),
+                Value<String?> uiSection = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
               }) => ProductModifiersCompanion.insert(
                 id: id,
@@ -24392,6 +25925,8 @@ class $$ProductModifiersTableTableManager
                 name: name,
                 type: type,
                 extraPriceMinor: extraPriceMinor,
+                priceBehavior: priceBehavior,
+                uiSection: uiSection,
                 isActive: isActive,
               ),
           withReferenceMapper: (p0) => p0
@@ -27241,6 +28776,8 @@ typedef $$OrderModifiersTableCreateCompanionBuilder =
       Value<int> unitPriceMinor,
       Value<int> priceEffectMinor,
       Value<int> sortKey,
+      Value<String?> priceBehavior,
+      Value<String?> uiSection,
     });
 typedef $$OrderModifiersTableUpdateCompanionBuilder =
     OrderModifiersCompanion Function({
@@ -27257,6 +28794,8 @@ typedef $$OrderModifiersTableUpdateCompanionBuilder =
       Value<int> unitPriceMinor,
       Value<int> priceEffectMinor,
       Value<int> sortKey,
+      Value<String?> priceBehavior,
+      Value<String?> uiSection,
     });
 
 final class $$OrderModifiersTableReferences
@@ -27390,6 +28929,16 @@ class $$OrderModifiersTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uiSection => $composableBuilder(
+    column: $table.uiSection,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$TransactionLinesTableFilterComposer get transactionLineId {
     final $$TransactionLinesTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -27519,6 +29068,16 @@ class $$OrderModifiersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get uiSection => $composableBuilder(
+    column: $table.uiSection,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$TransactionLinesTableOrderingComposer get transactionLineId {
     final $$TransactionLinesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -27635,6 +29194,14 @@ class $$OrderModifiersTableAnnotationComposer
 
   GeneratedColumn<int> get sortKey =>
       $composableBuilder(column: $table.sortKey, builder: (column) => column);
+
+  GeneratedColumn<String> get priceBehavior => $composableBuilder(
+    column: $table.priceBehavior,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get uiSection =>
+      $composableBuilder(column: $table.uiSection, builder: (column) => column);
 
   $$TransactionLinesTableAnnotationComposer get transactionLineId {
     final $$TransactionLinesTableAnnotationComposer composer = $composerBuilder(
@@ -27753,6 +29320,8 @@ class $$OrderModifiersTableTableManager
                 Value<int> unitPriceMinor = const Value.absent(),
                 Value<int> priceEffectMinor = const Value.absent(),
                 Value<int> sortKey = const Value.absent(),
+                Value<String?> priceBehavior = const Value.absent(),
+                Value<String?> uiSection = const Value.absent(),
               }) => OrderModifiersCompanion(
                 id: id,
                 uuid: uuid,
@@ -27767,6 +29336,8 @@ class $$OrderModifiersTableTableManager
                 unitPriceMinor: unitPriceMinor,
                 priceEffectMinor: priceEffectMinor,
                 sortKey: sortKey,
+                priceBehavior: priceBehavior,
+                uiSection: uiSection,
               ),
           createCompanionCallback:
               ({
@@ -27783,6 +29354,8 @@ class $$OrderModifiersTableTableManager
                 Value<int> unitPriceMinor = const Value.absent(),
                 Value<int> priceEffectMinor = const Value.absent(),
                 Value<int> sortKey = const Value.absent(),
+                Value<String?> priceBehavior = const Value.absent(),
+                Value<String?> uiSection = const Value.absent(),
               }) => OrderModifiersCompanion.insert(
                 id: id,
                 uuid: uuid,
@@ -27797,6 +29370,8 @@ class $$OrderModifiersTableTableManager
                 unitPriceMinor: unitPriceMinor,
                 priceEffectMinor: priceEffectMinor,
                 sortKey: sortKey,
+                priceBehavior: priceBehavior,
+                uiSection: uiSection,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -31644,6 +33219,9 @@ typedef $$PrinterSettingsTableCreateCompanionBuilder =
       Value<int> id,
       required String deviceName,
       required String deviceAddress,
+      Value<String?> connectionType,
+      Value<String?> ipAddress,
+      Value<int?> port,
       Value<int> paperWidth,
       Value<bool> isActive,
     });
@@ -31652,6 +33230,9 @@ typedef $$PrinterSettingsTableUpdateCompanionBuilder =
       Value<int> id,
       Value<String> deviceName,
       Value<String> deviceAddress,
+      Value<String?> connectionType,
+      Value<String?> ipAddress,
+      Value<int?> port,
       Value<int> paperWidth,
       Value<bool> isActive,
     });
@@ -31677,6 +33258,21 @@ class $$PrinterSettingsTableFilterComposer
 
   ColumnFilters<String> get deviceAddress => $composableBuilder(
     column: $table.deviceAddress,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get connectionType => $composableBuilder(
+    column: $table.connectionType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ipAddress => $composableBuilder(
+    column: $table.ipAddress,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get port => $composableBuilder(
+    column: $table.port,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -31715,6 +33311,21 @@ class $$PrinterSettingsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get connectionType => $composableBuilder(
+    column: $table.connectionType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ipAddress => $composableBuilder(
+    column: $table.ipAddress,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get port => $composableBuilder(
+    column: $table.port,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get paperWidth => $composableBuilder(
     column: $table.paperWidth,
     builder: (column) => ColumnOrderings(column),
@@ -31747,6 +33358,17 @@ class $$PrinterSettingsTableAnnotationComposer
     column: $table.deviceAddress,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get connectionType => $composableBuilder(
+    column: $table.connectionType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get ipAddress =>
+      $composableBuilder(column: $table.ipAddress, builder: (column) => column);
+
+  GeneratedColumn<int> get port =>
+      $composableBuilder(column: $table.port, builder: (column) => column);
 
   GeneratedColumn<int> get paperWidth => $composableBuilder(
     column: $table.paperWidth,
@@ -31797,12 +33419,18 @@ class $$PrinterSettingsTableTableManager
                 Value<int> id = const Value.absent(),
                 Value<String> deviceName = const Value.absent(),
                 Value<String> deviceAddress = const Value.absent(),
+                Value<String?> connectionType = const Value.absent(),
+                Value<String?> ipAddress = const Value.absent(),
+                Value<int?> port = const Value.absent(),
                 Value<int> paperWidth = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
               }) => PrinterSettingsCompanion(
                 id: id,
                 deviceName: deviceName,
                 deviceAddress: deviceAddress,
+                connectionType: connectionType,
+                ipAddress: ipAddress,
+                port: port,
                 paperWidth: paperWidth,
                 isActive: isActive,
               ),
@@ -31811,12 +33439,18 @@ class $$PrinterSettingsTableTableManager
                 Value<int> id = const Value.absent(),
                 required String deviceName,
                 required String deviceAddress,
+                Value<String?> connectionType = const Value.absent(),
+                Value<String?> ipAddress = const Value.absent(),
+                Value<int?> port = const Value.absent(),
                 Value<int> paperWidth = const Value.absent(),
                 Value<bool> isActive = const Value.absent(),
               }) => PrinterSettingsCompanion.insert(
                 id: id,
                 deviceName: deviceName,
                 deviceAddress: deviceAddress,
+                connectionType: connectionType,
+                ipAddress: ipAddress,
+                port: port,
                 paperWidth: paperWidth,
                 isActive: isActive,
               ),
@@ -32159,6 +33793,12 @@ class $AppDatabaseManager {
       );
   $$ProductsTableTableManager get products =>
       $$ProductsTableTableManager(_db, _db.products);
+  $$SandwichSauceMigrationAuditsTableTableManager
+  get sandwichSauceMigrationAudits =>
+      $$SandwichSauceMigrationAuditsTableTableManager(
+        _db,
+        _db.sandwichSauceMigrationAudits,
+      );
   $$MealAdjustmentProfileComponentsTableTableManager
   get mealAdjustmentProfileComponents =>
       $$MealAdjustmentProfileComponentsTableTableManager(

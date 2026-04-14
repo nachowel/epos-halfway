@@ -5,11 +5,15 @@ import '../../core/errors/error_mapper.dart';
 import '../../core/providers/app_providers.dart';
 import '../../domain/models/category.dart';
 import '../../domain/models/user.dart';
+import '../utils/sort_mode_draft.dart' as sort_draft;
 import 'auth_provider.dart';
+import 'category_catalog_provider.dart';
+import 'products_provider.dart';
 
 class AdminCategoriesState {
   const AdminCategoriesState({
     required this.categories,
+    required this.reorderDraft,
     required this.isLoading,
     required this.isSaving,
     required this.errorMessage,
@@ -17,23 +21,29 @@ class AdminCategoriesState {
 
   const AdminCategoriesState.initial()
     : categories = const <Category>[],
+      reorderDraft = const <Category>[],
       isLoading = false,
       isSaving = false,
       errorMessage = null;
 
   final List<Category> categories;
+  final List<Category> reorderDraft;
   final bool isLoading;
   final bool isSaving;
   final String? errorMessage;
 
+  bool get hasReorderChanges => !_idsInSameOrder(categories, reorderDraft);
+
   AdminCategoriesState copyWith({
     List<Category>? categories,
+    List<Category>? reorderDraft,
     bool? isLoading,
     bool? isSaving,
     Object? errorMessage = _unset,
   }) {
     return AdminCategoriesState(
       categories: categories ?? this.categories,
+      reorderDraft: reorderDraft ?? this.reorderDraft,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
       errorMessage: errorMessage == _unset
@@ -57,6 +67,7 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
           .getCategories();
       state = state.copyWith(
         categories: categories,
+        reorderDraft: categories,
         isLoading: false,
         errorMessage: null,
       );
@@ -73,10 +84,16 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
     }
   }
 
+  Future<void> _refreshSharedCategoryConsumers() async {
+    await _ref.refresh(posEntryCategoriesProvider.future);
+    await _ref.read(productsNotifierProvider.notifier).loadCatalog();
+  }
+
   Future<bool> createCategory({
     required String name,
     required int sortOrder,
     required bool isActive,
+    String? imageUrl,
   }) async {
     final User? currentUser = _ref.read(authNotifierProvider).currentUser;
     if (currentUser == null) {
@@ -92,7 +109,9 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
             name: name,
             sortOrder: sortOrder,
             isActive: isActive,
+            imageUrl: imageUrl,
           );
+      await _refreshSharedCategoryConsumers();
       await load();
       state = state.copyWith(isSaving: false, errorMessage: null);
       return true;
@@ -115,6 +134,7 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
     required String name,
     required int sortOrder,
     required bool isActive,
+    String? imageUrl,
   }) async {
     final User? currentUser = _ref.read(authNotifierProvider).currentUser;
     if (currentUser == null) {
@@ -131,7 +151,9 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
             name: name,
             sortOrder: sortOrder,
             isActive: isActive,
+            imageUrl: imageUrl,
           );
+      await _refreshSharedCategoryConsumers();
       await load();
       state = state.copyWith(isSaving: false, errorMessage: null);
       return true;
@@ -200,6 +222,101 @@ class AdminCategoriesNotifier extends StateNotifier<AdminCategoriesState> {
       return false;
     }
   }
+
+  void reorderDraft(int oldIndex, int newIndex) {
+    if (oldIndex < 0 ||
+        oldIndex >= state.reorderDraft.length ||
+        newIndex < 0 ||
+        newIndex > state.reorderDraft.length) {
+      return;
+    }
+
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    moveDraftItemToIndex(oldIndex: oldIndex, newIndex: newIndex);
+  }
+
+  void moveDraftItemToIndex({required int oldIndex, required int newIndex}) {
+    state = state.copyWith(
+      reorderDraft: sort_draft.moveDraftItem(
+        items: state.reorderDraft,
+        fromIndex: oldIndex,
+        toIndex: newIndex,
+      ),
+      errorMessage: null,
+    );
+  }
+
+  void moveDraftItemUp(int index) {
+    state = state.copyWith(
+      reorderDraft: sort_draft.moveDraftItemUp(state.reorderDraft, index),
+      errorMessage: null,
+    );
+  }
+
+  void moveDraftItemDown(int index) {
+    state = state.copyWith(
+      reorderDraft: sort_draft.moveDraftItemDown(state.reorderDraft, index),
+      errorMessage: null,
+    );
+  }
+
+  void moveDraftItemToTop(int index) {
+    state = state.copyWith(
+      reorderDraft: sort_draft.moveDraftItemToTop(state.reorderDraft, index),
+      errorMessage: null,
+    );
+  }
+
+  void moveDraftItemToBottom(int index) {
+    state = state.copyWith(
+      reorderDraft: sort_draft.moveDraftItemToBottom(state.reorderDraft, index),
+      errorMessage: null,
+    );
+  }
+
+  void discardReorderChanges() {
+    state = state.copyWith(reorderDraft: state.categories, errorMessage: null);
+  }
+
+  Future<bool> saveReorder() async {
+    final User? currentUser = _ref.read(authNotifierProvider).currentUser;
+    if (currentUser == null) {
+      state = state.copyWith(errorMessage: AppStrings.accessDenied);
+      return false;
+    }
+    if (!state.hasReorderChanges) {
+      return true;
+    }
+
+    state = state.copyWith(isSaving: true, errorMessage: null);
+    try {
+      await _ref
+          .read(adminServiceProvider)
+          .reorderCategories(
+            user: currentUser,
+            orderedIds: state.reorderDraft
+                .map((Category category) => category.id)
+                .toList(growable: false),
+          );
+      await _refreshSharedCategoryConsumers();
+      await load();
+      state = state.copyWith(isSaving: false, errorMessage: null);
+      return true;
+    } catch (error, stackTrace) {
+      state = state.copyWith(
+        isSaving: false,
+        errorMessage: ErrorMapper.toUserMessageAndLog(
+          error,
+          logger: _ref.read(appLoggerProvider),
+          eventType: 'admin_category_reorder_failed',
+          stackTrace: stackTrace,
+        ),
+      );
+      return false;
+    }
+  }
 }
 
 final StateNotifierProvider<AdminCategoriesNotifier, AdminCategoriesState>
@@ -209,3 +326,11 @@ adminCategoriesNotifierProvider =
     );
 
 const Object _unset = Object();
+
+bool _idsInSameOrder(List<Category> left, List<Category> right) {
+  return sort_draft.idsInSameOrder(
+    left,
+    right,
+    idOf: (Category category) => category.id,
+  );
+}

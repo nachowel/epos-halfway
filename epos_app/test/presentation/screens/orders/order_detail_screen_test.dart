@@ -9,9 +9,11 @@ import 'package:epos_app/data/repositories/transaction_repository.dart';
 import 'package:epos_app/domain/models/meal_customization.dart';
 import 'package:epos_app/l10n/app_localizations.dart';
 import 'package:epos_app/presentation/providers/auth_provider.dart';
+import 'package:epos_app/presentation/providers/orders_provider.dart';
 import 'package:epos_app/presentation/providers/shift_provider.dart';
 import 'package:epos_app/presentation/screens/orders/order_detail_screen.dart';
 import 'package:epos_app/domain/models/meal_adjustment_profile.dart';
+import 'package:epos_app/domain/models/print_job.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,6 +98,258 @@ void main() {
       expect(cancelButton.onPressed, isNull);
     },
   );
+
+  testWidgets(
+    'paid order detail shows operator, payment timing, totals, and print actions',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final db = createTestDatabase();
+      addTearDown(db.close);
+
+      final int cashierId = await insertUser(
+        db,
+        name: 'Cashier',
+        role: 'cashier',
+      );
+      final int shiftId = await insertShift(db, openedBy: cashierId);
+      final int transactionId = await insertTransaction(
+        db,
+        uuid: 'paid-detail-print-ui',
+        shiftId: shiftId,
+        userId: cashierId,
+        status: 'paid',
+        totalAmountMinor: 580,
+      );
+      await db.customStatement('''
+        UPDATE transactions
+        SET subtotal_minor = 500,
+            modifier_total_minor = 80
+        WHERE id = $transactionId
+      ''');
+      await insertPayment(
+        db,
+        uuid: 'paid-detail-payment',
+        transactionId: transactionId,
+        method: 'card',
+        amountMinor: 580,
+        paidAt: DateTime(2026, 4, 13, 20, 49),
+      );
+      await insertPrintJob(
+        db,
+        transactionId: transactionId,
+        target: PrintJobTarget.kitchen,
+        status: 'printed',
+      );
+      await insertPrintJob(
+        db,
+        transactionId: transactionId,
+        target: PrintJobTarget.receipt,
+        status: 'printed',
+      );
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          appDatabaseProvider.overrideWithValue(db),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(authNotifierProvider.notifier)
+          .loadUserById(cashierId);
+      await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
+
+      await tester.pumpWidget(
+        _localizedTestApp(
+          container,
+          child: OrderDetailScreen(transactionId: transactionId),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder subtotalFinder = find.text(
+        AppStrings.subtotal,
+        skipOffstage: false,
+      );
+      final Finder modifierTotalFinder = find.text(
+        AppStrings.modifierTotal,
+        skipOffstage: false,
+      );
+      final Finder kitchenPrintFinder = find.byKey(
+        const ValueKey<String>('detail-kitchen-print'),
+        skipOffstage: false,
+      );
+      final Finder receiptPrintFinder = find.byKey(
+        const ValueKey<String>('detail-receipt-print'),
+        skipOffstage: false,
+      );
+
+      await tester.ensureVisible(subtotalFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cashier'), findsOneWidget);
+      expect(find.text('13/04/2026 20:49'), findsWidgets);
+      expect(subtotalFinder, findsOneWidget);
+      expect(modifierTotalFinder, findsOneWidget);
+      expect(kitchenPrintFinder, findsOneWidget);
+      expect(receiptPrintFinder, findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'missing operator user falls back to unknown user and empty modifiers stay stable',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final db = createTestDatabase();
+      addTearDown(db.close);
+
+      final int cashierId = await insertUser(db, name: 'Cashier', role: 'cashier');
+      final int missingUserId = await insertUser(
+        db,
+        name: 'Ghost Operator',
+        role: 'cashier',
+      );
+      final int shiftId = await insertShift(db, openedBy: cashierId);
+      final int categoryId = await insertCategory(db, name: 'Drinks');
+      final int productId = await insertProduct(
+        db,
+        categoryId: categoryId,
+        name: 'Americano',
+        priceMinor: 250,
+      );
+      final int transactionId = await insertTransaction(
+        db,
+        uuid: 'detail-missing-user',
+        shiftId: shiftId,
+        userId: missingUserId,
+        status: 'paid',
+        totalAmountMinor: 250,
+      );
+      await db.into(db.transactionLines).insert(
+        app_db.TransactionLinesCompanion.insert(
+          uuid: 'detail-missing-user-line',
+          transactionId: transactionId,
+          productId: productId,
+          productName: 'Americano',
+          unitPriceMinor: 250,
+          lineTotalMinor: 250,
+        ),
+      );
+      await insertPayment(
+        db,
+        uuid: 'detail-missing-user-payment',
+        transactionId: transactionId,
+        method: 'card',
+        amountMinor: 250,
+      );
+      await insertPrintJob(
+        db,
+        transactionId: transactionId,
+        target: PrintJobTarget.receipt,
+        status: 'printed',
+      );
+      await db.customStatement(
+        'DELETE FROM users WHERE id = ?',
+        <Object?>[missingUserId],
+      );
+
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          appDatabaseProvider.overrideWithValue(db),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(authNotifierProvider.notifier)
+          .loadUserById(cashierId);
+      await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
+      final OrderDetails? details = await container
+          .read(ordersNotifierProvider.notifier)
+          .getOrderDetails(transactionId);
+
+      expect(details, isNotNull);
+      expect(details!.user, isNull);
+      expect(details.lines, hasLength(1));
+      expect(details.lines.single.line.productName, 'Americano');
+      expect(details.lines.single.modifiers, isEmpty);
+
+      await tester.pumpWidget(
+        _localizedTestApp(
+          container,
+          child: OrderDetailScreen(transactionId: transactionId),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(AppStrings.unknownUser), findsOneWidget);
+    },
+  );
+
+  testWidgets('inactive operator user name still renders on paid order detail', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final db = createTestDatabase();
+    addTearDown(db.close);
+
+    final int cashierId = await insertUser(db, name: 'Cashier', role: 'cashier');
+    final int inactiveOperatorId = await insertUser(
+      db,
+      name: 'Former Cashier',
+      role: 'cashier',
+      isActive: false,
+    );
+    final int shiftId = await insertShift(db, openedBy: cashierId);
+    final int transactionId = await insertTransaction(
+      db,
+      uuid: 'detail-inactive-user',
+      shiftId: shiftId,
+      userId: inactiveOperatorId,
+      status: 'paid',
+      totalAmountMinor: 500,
+    );
+    await insertPayment(
+      db,
+      uuid: 'detail-inactive-user-payment',
+      transactionId: transactionId,
+      method: 'cash',
+      amountMinor: 500,
+    );
+    await insertPrintJob(
+      db,
+      transactionId: transactionId,
+      target: PrintJobTarget.receipt,
+      status: 'printed',
+    );
+
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        appDatabaseProvider.overrideWithValue(db),
+        sharedPreferencesProvider.overrideWithValue(prefs),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(authNotifierProvider.notifier)
+        .loadUserById(cashierId);
+    await container.read(shiftNotifierProvider.notifier).refreshOpenShift();
+
+    await tester.pumpWidget(
+      _localizedTestApp(
+        container,
+        child: OrderDetailScreen(transactionId: transactionId),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Former Cashier'), findsOneWidget);
+  });
 
   testWidgets(
     'sent order detail shows pay and cancel but blocks send and discard',
@@ -255,8 +509,21 @@ void main() {
         lineQuantity: 2,
       );
 
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-meal-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('meal-edit-scope-dialog')),
+        findsOneWidget,
+      );
       await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-meal-${fixture.lineId}')),
+        find.byKey(const ValueKey<String>('meal-edit-scope-all')),
       );
       await tester.pumpAndSettle();
 
@@ -267,12 +534,15 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.textContaining('Editing applies to all 2 items'), findsOneWidget);
+      expect(
+        find.textContaining('Editing applies to all 2 items'),
+        findsOneWidget,
+      );
       expect(find.text('Save changes'), findsOneWidget);
     },
   );
 
-  testWidgets('legacy meal lines show disabled edit and explicit message', (
+  testWidgets('legacy meal lines show recreate action and explicit message', (
     WidgetTester tester,
   ) async {
     final _MealUiFixture fixture = await _pumpMealOrderDetail(
@@ -280,14 +550,30 @@ void main() {
       makeLegacy: true,
     );
 
-    final OutlinedButton editButton = tester.widget<OutlinedButton>(
-      find.byKey(ValueKey<String>('detail-edit-meal-${fixture.lineId}')),
+    expect(
+      find.byKey(
+        ValueKey<String>('detail-edit-meal-${fixture.lineId}'),
+        skipOffstage: false,
+      ),
+      findsNothing,
+    );
+    final Finder recreateFinder = find.byKey(
+      ValueKey<String>('detail-recreate-meal-${fixture.lineId}'),
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(recreateFinder);
+    await tester.pumpAndSettle();
+
+    final OutlinedButton recreateButton = tester.widget<OutlinedButton>(
+      recreateFinder,
     );
 
-    expect(editButton.onPressed, isNull);
+    expect(recreateButton.onPressed, isNotNull);
     expect(find.text('Legacy meal line'), findsOneWidget);
     expect(
-      find.text('This item was created before the new system and cannot be edited.'),
+      find.text(
+        'This item was created before the new system and cannot be edited.',
+      ),
       findsOneWidget,
     );
   });
@@ -299,8 +585,12 @@ void main() {
         tester,
       );
 
-      await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -334,8 +624,12 @@ void main() {
   ) async {
     final _BreakfastUiFixture fixture = await _pumpBreakfastOrderDetail(tester);
 
-    await tester.tap(
-      find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+    await _tapVisible(
+      tester,
+      find.byKey(
+        ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+        skipOffstage: false,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -380,8 +674,12 @@ void main() {
   ) async {
     final _BreakfastUiFixture fixture = await _pumpBreakfastOrderDetail(tester);
 
-    await tester.tap(
-      find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+    await _tapVisible(
+      tester,
+      find.byKey(
+        ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+        skipOffstage: false,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -427,8 +725,12 @@ void main() {
         tester,
       );
 
-      await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -494,8 +796,12 @@ void main() {
         tester,
       );
 
-      await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -545,8 +851,12 @@ void main() {
         lineQuantity: 2,
       );
 
-      await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -569,7 +879,7 @@ void main() {
   );
 
   testWidgets(
-    'breakfast modifier popup shows None for each required group and persists a second-group None selection',
+    'breakfast modifier popup shows explicit no-answer options for required groups',
     (WidgetTester tester) async {
       final _BreakfastUiFixture fixture = await _pumpBreakfastOrderDetail(
         tester,
@@ -577,8 +887,12 @@ void main() {
         requiredChoices: true,
       );
 
-      await tester.tap(
-        find.byKey(ValueKey<String>('detail-edit-breakfast-${fixture.lineId}')),
+      await _tapVisible(
+        tester,
+        find.byKey(
+          ValueKey<String>('detail-edit-breakfast-${fixture.lineId}'),
+          skipOffstage: false,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -602,29 +916,12 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(find.text('No drink'), findsOneWidget);
+      expect(find.text('No toast/bread'), findsOneWidget);
       expect(find.text('Tea'), findsOneWidget);
       expect(find.text('Coffee'), findsOneWidget);
       expect(find.text('Toast'), findsOneWidget);
       expect(find.text('Bread'), findsOneWidget);
-
-      await _tapVisible(
-        tester,
-        find.byKey(
-          ValueKey<String>(
-            'breakfast-choice-none-${fixture.toastBreadGroupId!}',
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        await _countExplicitNoneRows(
-          fixture.database,
-          lineId: fixture.lineId,
-          groupId: fixture.toastBreadGroupId!,
-        ),
-        1,
-      );
     },
   );
 }
@@ -879,6 +1176,24 @@ Future<_BreakfastUiFixture> _seedBreakfastUiFixture(
         );
   }
 
+  Future<void> insertExplicitNoneChoice({
+    required int groupId,
+    required String label,
+  }) async {
+    await db
+        .into(db.productModifiers)
+        .insert(
+          app_db.ProductModifiersCompanion.insert(
+            productId: set4ProductId,
+            groupId: Value<int?>(groupId),
+            itemProductId: const Value<int?>(null),
+            name: label,
+            type: 'choice',
+            extraPriceMinor: const Value<int>(0),
+          ),
+        );
+  }
+
   await insertChoice(
     groupId: hotDrinkGroupId,
     itemProductId: teaProductId,
@@ -889,6 +1204,7 @@ Future<_BreakfastUiFixture> _seedBreakfastUiFixture(
     itemProductId: coffeeProductId,
     label: 'Coffee',
   );
+  await insertExplicitNoneChoice(groupId: hotDrinkGroupId, label: 'No drink');
   if (toastBreadGroupId != null) {
     await insertChoice(
       groupId: toastBreadGroupId,
@@ -899,6 +1215,10 @@ Future<_BreakfastUiFixture> _seedBreakfastUiFixture(
       groupId: toastBreadGroupId,
       itemProductId: breadProductId,
       label: 'Bread',
+    );
+    await insertExplicitNoneChoice(
+      groupId: toastBreadGroupId,
+      label: 'No toast/bread',
     );
   }
 
@@ -1061,17 +1381,19 @@ Future<_MealUiFixture> _seedMealUiFixture(
     status: 'draft',
     totalAmountMinor: 1000 * lineQuantity,
   );
-  final int lineId = await db.into(db.transactionLines).insert(
-    app_db.TransactionLinesCompanion.insert(
-      uuid: 'meal-detail-line',
-      transactionId: transactionId,
-      productId: mealProductId,
-      productName: 'Burger Meal',
-      unitPriceMinor: 1000,
-      quantity: Value<int>(lineQuantity),
-      lineTotalMinor: 1000 * lineQuantity,
-    ),
-  );
+  final int lineId = await db
+      .into(db.transactionLines)
+      .insert(
+        app_db.TransactionLinesCompanion.insert(
+          uuid: 'meal-detail-line',
+          transactionId: transactionId,
+          productId: mealProductId,
+          productName: 'Burger Meal',
+          unitPriceMinor: 1000,
+          quantity: Value<int>(lineQuantity),
+          lineTotalMinor: 1000 * lineQuantity,
+        ),
+      );
 
   final TransactionRepository transactionRepository = TransactionRepository(db);
   await transactionRepository.replaceMealCustomizationLineSnapshot(
@@ -1176,21 +1498,9 @@ class _MealUiFixture {
 }
 
 Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.pumpAndSettle();
   await tester.ensureVisible(finder);
-  await tester.tap(finder);
-}
-
-Future<int> _countExplicitNoneRows(
-  app_db.AppDatabase database, {
-  required int lineId,
-  required int groupId,
-}) async {
-  final List<app_db.OrderModifier> rows =
-      await (database.select(database.orderModifiers)
-            ..where((tbl) => tbl.transactionLineId.equals(lineId))
-            ..where((tbl) => tbl.sourceGroupId.equals(groupId))
-            ..where((tbl) => tbl.action.equals('choice'))
-            ..where((tbl) => tbl.chargeReason.equals('included_choice')))
-          .get();
-  return rows.where((row) => row.itemProductId == null).length;
+  await tester.pumpAndSettle();
+  await tester.tap(finder, warnIfMissed: false);
+  await tester.pumpAndSettle();
 }

@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:epos_app/core/errors/exceptions.dart';
 import 'package:epos_app/data/database/app_database.dart' as app_db;
 import 'package:epos_app/data/repositories/breakfast_configuration_repository.dart';
+import 'package:epos_app/data/repositories/product_repository.dart';
 import 'package:epos_app/domain/models/breakfast_line_edit.dart';
 import 'package:epos_app/domain/models/breakfast_rebuild.dart';
 import 'package:epos_app/domain/models/product.dart';
@@ -13,6 +14,106 @@ import '../../support/test_database.dart';
 
 void main() {
   group('BreakfastPosService', () {
+    test(
+      'normal product with product-linked flat modifiers stays on legacy flat popup path',
+      () async {
+        final app_db.AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final BreakfastPosService service = BreakfastPosService(
+          breakfastConfigurationRepository: BreakfastConfigurationRepository(
+            db,
+          ),
+        );
+
+        final int categoryId = await insertCategory(db, name: 'Burgers');
+        final int rootProductId = await insertProduct(
+          db,
+          categoryId: categoryId,
+          name: 'Burger',
+          priceMinor: 700,
+          hasModifiers: true,
+        );
+        final int chipsProductId = await insertProduct(
+          db,
+          categoryId: categoryId,
+          name: 'Chips',
+          priceMinor: 150,
+          isVisibleOnPos: false,
+        );
+        final Product rootProduct = (await ProductRepository(
+          db,
+        ).getById(rootProductId))!;
+
+        await db
+            .into(db.productModifiers)
+            .insert(
+              app_db.ProductModifiersCompanion.insert(
+                productId: rootProductId,
+                itemProductId: Value<int?>(chipsProductId),
+                name: 'Chips',
+                type: 'extra',
+                extraPriceMinor: const Value<int>(150),
+                priceBehavior: const Value<String?>('paid'),
+                uiSection: const Value<String?>('add_ins'),
+              ),
+            );
+
+        expect(
+          await service.getSelectionPath(rootProduct),
+          PosProductSelectionPath.legacyFlat,
+        );
+        await expectLater(
+          () => service.loadEditorData(product: rootProduct),
+          throwsA(isA<ValidationException>()),
+        );
+      },
+    );
+
+    test(
+      'configured breakfast products route to the semantic bundle engine regardless of category',
+      () async {
+        final app_db.AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final BreakfastPosService service = BreakfastPosService(
+          breakfastConfigurationRepository: BreakfastConfigurationRepository(
+            db,
+          ),
+        );
+
+        final List<_BreakfastPosFixture> fixtures = <_BreakfastPosFixture>[
+          await _seedBreakfastPosFixture(
+            db,
+            rootCategoryName: 'Set Breakfast',
+            rootProductName: 'Big Breakfast',
+          ),
+          await _seedBreakfastPosFixture(
+            db,
+            rootCategoryName: 'Pancake Breakfast',
+            rootProductName: 'Pancake Breakfast 1',
+          ),
+          await _seedBreakfastPosFixture(
+            db,
+            rootCategoryName: 'Healthy Breakfast',
+            rootProductName: 'Eggs Benedict',
+          ),
+        ];
+
+        for (final _BreakfastPosFixture fixture in fixtures) {
+          expect(
+            await service.getSelectionPath(fixture.rootProduct),
+            PosProductSelectionPath.semanticBundle,
+          );
+          final BreakfastPosEditorData editorData = await service
+              .loadEditorData(product: fixture.rootProduct);
+          expect(editorData.profile.type, ProductMenuConfigType.semanticSet);
+          expect(
+            editorData.configuration.setRootProductId,
+            fixture.rootProduct.id,
+          );
+        }
+      },
+    );
+
     test(
       'required grouped choices must be completed before confirmation',
       () async {
@@ -59,11 +160,54 @@ void main() {
     );
 
     test(
-      'explicit none satisfies required grouped choice validation',
+      'explicit none is allowed for required-answer grouped choices',
       () async {
         final app_db.AppDatabase db = createTestDatabase();
         addTearDown(db.close);
-        final _BreakfastPosFixture fixture = await _seedBreakfastPosFixture(db);
+        final _BreakfastPosFixture fixture = await _seedBreakfastPosFixture(
+          db,
+          explicitNoneLabel: 'No drink',
+        );
+        final BreakfastPosService service = BreakfastPosService(
+          breakfastConfigurationRepository: BreakfastConfigurationRepository(
+            db,
+          ),
+        );
+
+        final BreakfastPosEditorData initial = await service.loadEditorData(
+          product: fixture.rootProduct,
+        );
+
+        final BreakfastPosSelectionPreview preview = service.previewSelection(
+          product: fixture.rootProduct,
+          configuration: initial.configuration,
+          requestedState: BreakfastRequestedState(
+            chosenGroups: <BreakfastChosenGroupRequest>[
+              BreakfastChosenGroupRequest(
+                groupId: fixture.drinkGroupId,
+                selectedItemProductId: null,
+                requestedQuantity: 1,
+              ),
+            ],
+          ),
+        );
+
+        expect(preview.canConfirm, isTrue);
+        expect(preview.validationMessages, isEmpty);
+        expect(preview.rebuildResult.lineSnapshot.lineTotalMinor, 600);
+      },
+    );
+
+    test(
+      'explicit none remains available when the group is configured for it',
+      () async {
+        final app_db.AppDatabase db = createTestDatabase();
+        addTearDown(db.close);
+        final _BreakfastPosFixture fixture = await _seedBreakfastPosFixture(
+          db,
+          groupMinSelect: 0,
+          explicitNoneLabel: 'No drink',
+        );
         final BreakfastPosService service = BreakfastPosService(
           breakfastConfigurationRepository: BreakfastConfigurationRepository(
             db,
@@ -251,18 +395,22 @@ extension on BreakfastLineEdit {
 
 Future<_BreakfastPosFixture> _seedBreakfastPosFixture(
   app_db.AppDatabase db, {
+  int groupMinSelect = 1,
   int groupMaxSelect = 1,
+  String rootCategoryName = 'Set Breakfast',
+  String rootProductName = 'Set Breakfast',
+  String? explicitNoneLabel,
 }) async {
   final int breakfastCategoryId = await insertCategory(
     db,
-    name: 'Set Breakfast',
+    name: rootCategoryName,
   );
   final int drinkCategoryId = await insertCategory(db, name: 'Drinks');
 
   final int rootProductId = await insertProduct(
     db,
     categoryId: breakfastCategoryId,
-    name: 'Set Breakfast',
+    name: rootProductName,
     priceMinor: 600,
   );
   final int eggProductId = await insertProduct(
@@ -324,7 +472,7 @@ Future<_BreakfastPosFixture> _seedBreakfastPosFixture(
         app_db.ModifierGroupsCompanion.insert(
           productId: rootProductId,
           name: 'Drink choice',
-          minSelect: const Value<int>(1),
+          minSelect: Value<int>(groupMinSelect),
           maxSelect: Value<int>(groupMaxSelect),
           includedQuantity: const Value<int>(1),
           sortOrder: const Value<int>(1),
@@ -351,6 +499,20 @@ Future<_BreakfastPosFixture> _seedBreakfastPosFixture(
 
   await insertChoiceMember(itemProductId: teaProductId, label: 'Tea');
   await insertChoiceMember(itemProductId: coffeeProductId, label: 'Coffee');
+  if (explicitNoneLabel != null) {
+    await db
+        .into(db.productModifiers)
+        .insert(
+          app_db.ProductModifiersCompanion.insert(
+            productId: rootProductId,
+            groupId: Value<int?>(drinkGroupId),
+            itemProductId: const Value<int?>(null),
+            name: explicitNoneLabel,
+            type: 'choice',
+            extraPriceMinor: const Value<int>(0),
+          ),
+        );
+  }
   await db
       .into(db.productModifiers)
       .insert(
@@ -367,7 +529,7 @@ Future<_BreakfastPosFixture> _seedBreakfastPosFixture(
     rootProduct: Product(
       id: rootProductId,
       categoryId: breakfastCategoryId,
-      name: 'Set Breakfast',
+      name: rootProductName,
       priceMinor: 600,
       imageUrl: null,
       hasModifiers: false,
